@@ -16,6 +16,7 @@ builds:
       - -X main.version={{.Version}}
       - -X main.commit={{.ShortCommit}}
       - -X main.date={{ .Date }}
+      - -X github.com/jimschubert/mnemonic/internal/server.serverVersion={{.Version}}
     goos:
       - linux
       - darwin
