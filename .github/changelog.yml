@@ -1,6 +1,6 @@
 resolve: commits
-owner: %OWNER%
-repo: %NAME%
+owner: jimschubert
+repo: mnemonic
 groupings:
   - name: Features
     patterns: ['(?i)^.*?(feat|new|initial|support|introduce)\b.*?:']

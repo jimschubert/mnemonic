@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	programName = "%NAME%"
+	programName = "mnemonic"
 	version     = "dev"
 	commit      = "unknown SHA"
 )

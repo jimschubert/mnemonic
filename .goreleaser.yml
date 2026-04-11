@@ -5,9 +5,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: %NAME%
-    main: ./cmd/%NAME%/main.go
-    binary: %NAME%
+  - id: mnemonic
+    main: ./cmd/mnemonic/main.go
+    binary: mnemonic
     env:
       - CGO_ENABLED=0
     ldflags:
