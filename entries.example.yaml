@@ -1,0 +1,68 @@
+version: 1
+entries:
+  # Avoidance head (mandatory — always returned) 
+  - id: avoid-left-recursion
+    content: "FAKE: parser.New() requires EBNF without left-recursion. Always verify grammar is 
+      right-recursive before passing to the parser or it will loop indefinitely at runtime."
+    tags: [ fake, parser, grammar, ebnf ]
+    category: avoidance
+    scope: project
+    score: 1.0
+    hit_count: 7
+    last_hit: 2025-04-10T00:00:00Z
+    created: 2025-04-01T00:00:00Z
+    source: "mistake:2025-04-01"
+
+  # Security head (mandatory)
+  - id: sensitive-data-redaction
+    content: "SECURITY: Never log AWS Access Keys, API Keys, or any other sensitive PII. Use a redaction
+      function to scrub these values before logging. Consider using a regex-based
+      redactor that replaces all but the last 4 characters with asterisks."
+    tags: [ security, pii, logging, redaction ]
+    category: security
+    scope: global
+    score: 1.0
+    hit_count: 23
+    last_hit: 2025-04-09T00:00:00Z
+    created: 2025-03-15T00:00:00Z
+    source: manual
+
+  # Syntax head (conditional — triggered on code tasks)
+  - id: go-error-wrapping
+    content: "GO STYLE: Wrap errors with context using fmt.Errorf(\"doing X: %w\",err). 
+      Never discard errors silently with _. Always check returns from functions that can fail."
+    tags: [ go, errors, style, fmt ]
+    category: syntax
+    scope: global
+    score: 0.9
+    hit_count: 12
+    last_hit: 2025-04-08T00:00:00Z
+    created: 2025-03-20T00:00:00Z
+    source: manual
+
+  # Architecture head (conditional — triggered on design tasks)
+  - id: service-layer-pattern
+    content: "ARCHITECTURE: Keep HTTP handlers thin. Business logic lives in
+      service structs, not handlers. Handlers should only parse input, call
+      a service method, and write the response."
+    tags: [ architecture, go, http, handlers, services ]
+    category: architecture
+    scope: global
+    score: 0.85
+    hit_count: 5
+    last_hit: 2025-04-07T00:00:00Z
+    created: 2025-03-25T00:00:00Z
+    source: manual
+
+  # Domain head (semantic — open search)
+  - id: stencil-custom-funcs
+    content: "STENCIL: Create custom plugins to extend emitter functionality, always 
+      following the structures defined in PLUGINS.md."
+    tags: [ stencil, emitters, plugins ]
+    category: domain
+    scope: project
+    score: 0.75
+    hit_count: 3
+    last_hit: 2025-04-05T00:00:00Z
+    created: 2025-04-02T00:00:00Z
+    source: manual
