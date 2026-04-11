@@ -1,0 +1,26 @@
+resolve: commits
+owner: %OWNER%
+repo: %NAME%
+groupings:
+  - name: Features
+    patterns: ['(?i)^.*?(feat|new|initial|support|introduce)\b.*?:']
+  - name: Bug Fixes
+    patterns: ['(?i)^.*?(fix|bug)\b.*?:', '(?i).*fixes$']
+  - name: Documentation
+    patterns: ['(?i)^.*?docs?(\(.+\))?\b.*?:']
+  - name: Build Related
+    patterns: ['(?i)^.*?(build|deps|upgrade|update)(\(.+\))?\b.*?:']
+  - name: Other Changes
+    patterns: ['.*']
+exclude:
+  - '^(?i)wip\b'
+  - '^(?i)help\b'
+  - '^(?i)trying\b'
+  - '^(?i)workflow\b'
+  - '^(?i)update readme\b'
+  - '^(?i)test\b'
+  - '^(?i)style\b'
+  - '^(?i)chore\b'
+sort: desc
+max_commits: 15
+local: false

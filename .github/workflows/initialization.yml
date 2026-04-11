@@ -1,0 +1,109 @@
+# Cleans up the repository from it's template state to user-ready state
+# This workflow is based from
+# https://github.com/JetBrains/intellij-platform-plugin-template/blob/master/.github/workflows/initialization.yml
+name: Repository Initialization
+on:
+  push:
+    branches:
+      - master
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+
+  initialization:
+    name: Repository Initialization
+    runs-on: ubuntu-latest
+    if: github.repository != 'jimschubert/go-cli-template'
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      - name: Cleanup
+        run: |
+          export LC_CTYPE=C
+          export LANG=C
+
+          # Prepare variables
+          NAME="${GITHUB_REPOSITORY##*/}"
+          ACTOR=$(echo $GITHUB_ACTOR | tr '[:upper:]' '[:lower:]')
+          OWNER=$(echo $GITHUB_REPOSITORY | cut -d'/' -f1 | tr '[:upper:]' '[:lower:]')
+          PACKAGE_SED_PATTERN="github\.com\/$ACTOR\/$NAME"
+          REPOSITORY_SED_PATTERN="${GITHUB_REPOSITORY/\//\\/}"
+
+          # Replace placeholders in the initialization files
+          find .github/initialization/ -type f -exec sed -i "s/%NAME%/$NAME/g" {} +
+          find .github/initialization/ -type f -exec sed -i "s/%REPOSITORY%/${REPOSITORY_SED_PATTERN}/g" {} +
+          find .github/initialization/ -type f -exec sed -i "s/%PACKAGE%/${PACKAGE_SED_PATTERN}/g" {} +
+          find .github/initialization/ -type f -exec sed -i "s/%OWNER%/$OWNER/g" {} +
+
+          # Replace placeholders in root files
+          find . -maxdepth 1 -type f -exec sed -i "s/%NAME%/$NAME/g" {} +
+          find . -maxdepth 1 -type f -exec sed -i "s/%PACKAGE%/${PACKAGE_SED_PATTERN}/g" {} +
+          find . -maxdepth 1 -type f -exec sed -i "s/%OWNER%/$OWNER/g" {} +
+
+          # Replace placeholders in .github files (but not in initialization dir)
+          find .github -path .github/initialization -prune -o -type f -exec sed -i "s/%NAME%/$NAME/g" {} +
+          find .github -path .github/initialization -prune -o -type f -exec sed -i "s/%OWNER%/$OWNER/g" {} +
+
+          # Remove lines marked with #REMOVE-ON-CLEANUP#
+          find . -type f -exec sed -i '/#REMOVE-ON-CLEANUP#/d' {} +
+
+          # Move content - create cmd directory structure
+          mkdir -p "cmd/$NAME"
+          cp -R .github/initialization/cmd/%NAME%/main.go "cmd/$NAME/main.go"
+
+          # Copy other initialization files if any
+          if [ -f .github/initialization/go.mod ]; then
+            cp .github/initialization/go.mod .
+          fi
+
+          if [ -f .github/initialization/README.md ]; then
+            cp .github/initialization/README.md .
+          fi
+
+          if [ -f .github/initialization/FUNDING.yml ]; then
+            cp .github/initialization/FUNDING.yml .github/FUNDING.yml
+          fi
+
+          # Cleanup
+          rm -rf .github/initialization
+          rm .github/workflows/initialization.yml
+
+      - name: Update Go dependencies to latest
+        run: |
+          # Get the latest version of kong
+          go get -u github.com/alecthomas/kong@latest
+
+          # Tidy up go.mod and go.sum
+          go mod tidy
+
+          # Update go version in go.mod to the one we're using in the workflow
+          GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
+          GO_MINOR=$(echo $GO_VERSION | cut -d. -f1-2)
+          go mod edit -go=$GO_MINOR
+
+      - name: Commit files
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+
+          # Create a detailed commit message
+          GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
+          KONG_VERSION=$(go list -m -f '{{.Version}}' github.com/alecthomas/kong)
+
+          git commit -m "Initialize from jimschubert/go-cli-template" -m "- Go ${GO_VERSION}" -m "- kong ${KONG_VERSION}"
+
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}

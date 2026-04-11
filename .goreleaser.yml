@@ -1,0 +1,51 @@
+# Check the documentation at http://goreleaser.com
+version: 2
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: %NAME%
+    main: ./cmd/%NAME%/main.go
+    binary: %NAME%
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.projectName={{ .ProjectName }}
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{ .Date }}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
+    formats: [ tar.gz ]
+    files:
+      - LICENSE*
+      - README*
+
+sboms:
+  - id: archive
+    artifacts: archive
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^chore:'
+      - '^ci:'
+      - '^[wW][iI][pP]:'
+      - '^[tT][eE][sS][tT]:'
