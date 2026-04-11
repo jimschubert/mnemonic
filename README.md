@@ -6,7 +6,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/jimschubert/mnemonic)](https://goreportcard.com/report/github.com/jimschubert/mnemonic)
 [![GitHub Release](https://img.shields.io/github/v/release/jimschubert/mnemonic)](https://github.com/jimschubert/mnemonic/releases/latest)
 
-[placeholder description]
+> Attention-based MCP memory controller for LLM coding agents.
 
 # Installation
 

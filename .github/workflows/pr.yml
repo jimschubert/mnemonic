@@ -31,5 +31,5 @@ jobs:
   build:
     uses: jimschubert/.workflows/.github/workflows/go-pr.yml@main
     with:
-      golangci-lint-version: "v2.9.0"
+      golangci-lint-version: "v2.11.4"
     secrets: inherit
