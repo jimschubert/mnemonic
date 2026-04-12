@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"sync"
 )
 
@@ -11,12 +12,7 @@ var mandatory = []string{
 }
 
 func IsMandatoryCategory(head string) bool {
-	for _, m := range mandatory {
-		if head == m {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(mandatory, head)
 }
 
 // WithAdditionalMandatoryCategories allows extending mandatory categories (heads).

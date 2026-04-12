@@ -8,44 +8,44 @@ import (
 
 func TestIsMandatoryCategory(t *testing.T) {
 	tests := []struct {
-		name       string
-		category   string
-		expected   bool
+		name     string
+		category string
+		expected bool
 	}{
 		{
-			name:       "avoidance is mandatory",
-			category:   "avoidance",
-			expected:   true,
+			name:     "avoidance is mandatory",
+			category: "avoidance",
+			expected: true,
 		},
 		{
-			name:       "security is mandatory",
-			category:   "security",
-			expected:   true,
+			name:     "security is mandatory",
+			category: "security",
+			expected: true,
 		},
 		{
-			name:       "syntax is not mandatory",
-			category:   "syntax",
-			expected:   false,
+			name:     "syntax is not mandatory",
+			category: "syntax",
+			expected: false,
 		},
 		{
-			name:       "architecture is not mandatory",
-			category:   "architecture",
-			expected:   false,
+			name:     "architecture is not mandatory",
+			category: "architecture",
+			expected: false,
 		},
 		{
-			name:       "domain is not mandatory",
-			category:   "domain",
-			expected:   false,
+			name:     "domain is not mandatory",
+			category: "domain",
+			expected: false,
 		},
 		{
-			name:       "unknown category is not mandatory",
-			category:   "unknown",
-			expected:   false,
+			name:     "unknown category is not mandatory",
+			category: "unknown",
+			expected: false,
 		},
 		{
-			name:       "empty string is not mandatory",
-			category:   "",
-			expected:   false,
+			name:     "empty string is not mandatory",
+			category: "",
+			expected: false,
 		},
 	}
 
@@ -56,4 +56,3 @@ func TestIsMandatoryCategory(t *testing.T) {
 		})
 	}
 }
-

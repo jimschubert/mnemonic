@@ -1,6 +1,7 @@
 package yamlstore
 
 import (
+	"crypto/rand"
 	"fmt"
 	"maps"
 	"math"
@@ -90,12 +91,127 @@ func (s *YAMLStore) Get(id string) (*store.Entry, error) {
 	return nil, fmt.Errorf("entry %q not found", id)
 }
 
+// AllByCategory returns entries in the given category, sorted by weighted score.
+func (s *YAMLStore) AllByCategory(category string, topK int, scopes []store.Scope) ([]store.Entry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var candidates []store.Entry
+	for _, e := range s.allEntries(s.scopesForQuery(scopes)) {
+		if e.Category == category {
+			candidates = append(candidates, e)
+		}
+	}
+	sortByWeightedScore(candidates)
+	if topK > 0 && len(candidates) > topK {
+		candidates = candidates[:topK]
+	}
+	return candidates, nil
+}
+
+// QueryByCategory returns entries in the given category whose content or tags contain any query term (case-insensitive), sorted by weighted score.
+func (s *YAMLStore) QueryByCategory(category, query string, topK int, scopes []store.Scope) ([]store.Entry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	queryTerms := strings.Fields(strings.ToLower(query))
+	var candidates []store.Entry
+	for _, e := range s.allEntries(s.scopesForQuery(scopes)) {
+		if e.Category != category {
+			continue
+		}
+		if keywordMatch(e, queryTerms) {
+			candidates = append(candidates, e)
+		}
+	}
+	sortByWeightedScore(candidates)
+	if topK > 0 && len(candidates) > topK {
+		candidates = candidates[:topK]
+	}
+	return candidates, nil
+}
+
 func (s *YAMLStore) Query(category string, tags []string) ([]*store.Entry, error) {
-	return nil, fmt.Errorf("not implemented")
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	lower := make([]string, len(tags))
+	for i, t := range tags {
+		lower[i] = strings.ToLower(t)
+	}
+	var out []*store.Entry
+	for _, e := range s.allEntries(s.scopesForQuery(nil)) {
+		if category != "" && e.Category != category {
+			continue
+		}
+		if !tagsMatch(e.Tags, lower) {
+			continue
+		}
+		out = append(out, new(e))
+	}
+	return out, nil
 }
 
 func (s *YAMLStore) Upsert(entry *store.Entry) error {
-	return fmt.Errorf("not implemented")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	scope := store.Scope(entry.Scope)
+	if scope == "" {
+		scope = store.ScopeGlobal
+	}
+	f, ok := s.data[scope]
+	if !ok {
+		return fmt.Errorf("scope %q is not configured", scope)
+	}
+
+	if entry.ID == "" {
+		var b [8]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			return fmt.Errorf("generating ID: %w", err)
+		}
+		entry.ID = fmt.Sprintf("%x", b)
+	}
+	if entry.Score == 0 {
+		entry.Score = 1.0
+	}
+	if entry.Created.IsZero() {
+		entry.Created = time.Now()
+	}
+
+	for i, e := range f.Entries {
+		// update existing entry
+		if e.ID == entry.ID {
+			f.Entries[i] = *entry
+			return s.persist(scope)
+		}
+	}
+
+	// add new entry
+	f.Entries = append(f.Entries, *entry)
+	return s.persist(scope)
+}
+
+func (s *YAMLStore) Promote(id string, targetScope store.Scope) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.data[targetScope]; !ok {
+		return fmt.Errorf("target scope %q is not configured", targetScope)
+	}
+	for scope, f := range s.data {
+		for i, e := range f.Entries {
+			if e.ID == id {
+				// remove from current scope
+				f.Entries = append(f.Entries[:i], f.Entries[i+1:]...)
+				if err := s.persist(scope); err != nil {
+					// failed to persist removal, put back and return error
+					f.Entries = append(f.Entries[:i], append([]store.Entry{e}, f.Entries[i:]...)...)
+					return err
+				}
+				e.Scope = targetScope.String()
+				s.data[targetScope].Entries = append(s.data[targetScope].Entries, e)
+				return s.persist(targetScope)
+			}
+		}
+	}
+	return fmt.Errorf("entry %q not found", id)
 }
 
 func (s *YAMLStore) Score(id string, delta float64) error {
@@ -117,10 +233,10 @@ func (s *YAMLStore) Score(id string, delta float64) error {
 func (s *YAMLStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for scope, wf := range s.data {
-		for i, e := range wf.Entries {
+	for scope, f := range s.data {
+		for i, e := range f.Entries {
 			if e.ID == id {
-				wf.Entries = append(wf.Entries[:i], wf.Entries[i+1:]...)
+				f.Entries = append(f.Entries[:i], f.Entries[i+1:]...)
 				return s.persist(scope)
 			}
 		}
@@ -139,11 +255,11 @@ func (s *YAMLStore) load(scope store.Scope, path string) error {
 	if err != nil {
 		return err
 	}
-	var wf file
-	if err := yaml.Unmarshal(b, &wf); err != nil {
+	var f file
+	if err := yaml.Unmarshal(b, &f); err != nil {
 		return err
 	}
-	s.data[scope] = &wf
+	s.data[scope] = &f
 	return nil
 }
 
@@ -176,6 +292,61 @@ func (s *YAMLStore) allEntries(scopes []store.Scope) []store.Entry {
 		}
 	}
 	return out
+}
+
+// tagsMatch returns true if all required tags are present in entryTags (case-insensitive).
+// If required is empty, it matches any entry.
+// Caller must pass required tags in lowercase for efficiency.
+func tagsMatch(entryTags []string, required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+
+	set := make(map[string]struct{}, len(entryTags))
+	for _, t := range entryTags {
+		set[strings.ToLower(t)] = struct{}{}
+	}
+	for _, r := range required {
+		if _, ok := set[r]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func keywordMatch(e store.Entry, terms []string) bool {
+	if len(terms) == 0 {
+		return true
+	}
+	content := strings.ToLower(e.Content)
+	for _, t := range terms {
+		if strings.Contains(content, t) {
+			return true
+		}
+	}
+	for _, tag := range e.Tags {
+		tag = strings.ToLower(tag)
+		for _, t := range terms {
+			if strings.Contains(tag, t) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sortByWeightedScore(entries []store.Entry) {
+	sort.Slice(entries, func(i, j int) bool {
+		return weightedScore(entries[i]) > weightedScore(entries[j])
+	})
+}
+
+// weightedScore adds a recency bias to the entry's score. Recent hits increase the score, while old entries decay over time.
+// The half-life is ~14 days (ln(2) / 0.05).
+func weightedScore(e store.Entry) float64 {
+	days := time.Since(e.LastHit).Hours() / 24
+	decay := math.Exp(-0.05 * days)
+	return e.Score * decay
 }
 
 func expandHome(path string) string {

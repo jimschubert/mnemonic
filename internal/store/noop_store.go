@@ -31,4 +31,16 @@ func (s *NoopStore) Score(id string, delta float64) error {
 	return nil
 }
 
+func (s *NoopStore) AllByCategory(category string, topK int, scopes []Scope) ([]Entry, error) {
+	return nil, nil
+}
+
+func (s *NoopStore) QueryByCategory(category, query string, topK int, scopes []Scope) ([]Entry, error) {
+	return nil, nil
+}
+
+func (s *NoopStore) Promote(id string, targetScope Scope) error {
+	return nil
+}
+
 var _ Store = (*NoopStore)(nil)

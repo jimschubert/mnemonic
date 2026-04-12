@@ -11,6 +11,44 @@ import (
 )
 
 const (
+	// categoryScoredYAML has two entries in "tips" with very different scores
+	// so weighted ordering is predictable regardless of recency decay.
+	categoryScoredYAML = `version: 1
+entries:
+  - id: high-score
+    content: "high score tip about go errors"
+    tags: [go, errors]
+    category: tips
+    scope: global
+    score: 100.0
+    hit_count: 0
+    last_hit: 2025-01-01T00:00:00Z
+    created: 2025-01-01T00:00:00Z
+    source: manual
+  - id: low-score
+    content: "low score tip about logging"
+    tags: [logging]
+    category: tips
+    scope: global
+    score: 1.0
+    hit_count: 0
+    last_hit: 2025-01-01T00:00:00Z
+    created: 2025-01-01T00:00:00Z
+    source: manual
+  - id: other-category
+    content: "something else"
+    tags: []
+    category: other
+    scope: global
+    score: 50.0
+    hit_count: 0
+    last_hit: 2025-01-01T00:00:00Z
+    created: 2025-01-01T00:00:00Z
+    source: manual
+`
+)
+
+const (
 	singleEntryYAML = `version: 1
 entries:
   - id: test-entry
@@ -599,3 +637,379 @@ func TestListHeads_MandatoryCategories(t *testing.T) {
 	}
 }
 
+func TestUpsert(t *testing.T) {
+	t.Run("new entry with explicit ID", func(t *testing.T) {
+		s, _ := newTestStore(t, singleEntryYAML)
+
+		entry := &store.Entry{
+			ID:       "new-id",
+			Content:  "new content",
+			Category: "test",
+			Scope:    "global",
+			Score:    0.5,
+		}
+		err := s.Upsert(entry)
+		assert.NoError(t, err)
+
+		got, err := s.Get("new-id")
+		assert.NoError(t, err)
+		assert.Equal(t, "new-id", got.ID)
+		assert.Equal(t, "new content", got.Content)
+	})
+
+	t.Run("new entry auto-generates ID", func(t *testing.T) {
+		s, _ := newTestStore(t, singleEntryYAML)
+
+		entry := &store.Entry{
+			Content:  "auto id entry",
+			Category: "test",
+			Scope:    "global",
+		}
+		err := s.Upsert(entry)
+		assert.NoError(t, err)
+		assert.NotEqual(t, "", entry.ID)
+	})
+
+	t.Run("new entry defaults score to 1.0", func(t *testing.T) {
+		s, _ := newTestStore(t, singleEntryYAML)
+
+		entry := &store.Entry{
+			Content:  "score default",
+			Category: "test",
+			Scope:    "global",
+		}
+		err := s.Upsert(entry)
+		assert.NoError(t, err)
+		assert.Equal(t, 1.0, entry.Score)
+	})
+
+	t.Run("new entry defaults Created to now", func(t *testing.T) {
+		s, _ := newTestStore(t, singleEntryYAML)
+
+		before := time.Now()
+		entry := &store.Entry{
+			Content:  "created default",
+			Category: "test",
+			Scope:    "global",
+		}
+		err := s.Upsert(entry)
+		after := time.Now()
+		assert.NoError(t, err)
+		assert.True(t, !entry.Created.Before(before) && !entry.Created.After(after),
+			"Created should be set to approximately now")
+	})
+
+	t.Run("update existing entry", func(t *testing.T) {
+		s, _ := newTestStore(t, singleEntryYAML)
+
+		entry := &store.Entry{
+			ID:       "test-entry",
+			Content:  "updated content",
+			Category: "test",
+			Scope:    "global",
+			Score:    0.9,
+		}
+		err := s.Upsert(entry)
+		assert.NoError(t, err)
+
+		got, err := s.Get("test-entry")
+		assert.NoError(t, err)
+		assert.Equal(t, "updated content", got.Content)
+		assert.Equal(t, 0.9, got.Score)
+	})
+
+	t.Run("unknown scope returns error", func(t *testing.T) {
+		s, _ := newTestStore(t, singleEntryYAML)
+
+		entry := &store.Entry{
+			Content:  "bad scope",
+			Category: "test",
+			Scope:    "nonexistent",
+		}
+		err := s.Upsert(entry)
+		assert.Error(t, err)
+	})
+
+	t.Run("empty scope defaults to global", func(t *testing.T) {
+		s, _ := newTestStore(t, singleEntryYAML)
+
+		entry := &store.Entry{
+			ID:       "no-scope-entry",
+			Content:  "no scope set",
+			Category: "test",
+		}
+		err := s.Upsert(entry)
+		assert.NoError(t, err)
+
+		got, err := s.Get("no-scope-entry")
+		assert.NoError(t, err)
+		assert.Equal(t, "no-scope-entry", got.ID)
+	})
+
+	t.Run("persistence", func(t *testing.T) {
+		path := setupTempYAML(t, singleEntryYAML)
+		s, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+		assert.NoError(t, err)
+
+		entry := &store.Entry{
+			ID:       "persisted-entry",
+			Content:  "persisted",
+			Category: "test",
+			Scope:    "global",
+			Score:    0.7,
+		}
+		err = s.Upsert(entry)
+		assert.NoError(t, err)
+
+		s2, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+		assert.NoError(t, err)
+		got, err := s2.Get("persisted-entry")
+		assert.NoError(t, err)
+		assert.Equal(t, "persisted", got.Content)
+	})
+}
+
+func TestAllByCategory(t *testing.T) {
+	t.Run("returns only matching category", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.AllByCategory("tips", 0, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 2, len(entries))
+		for _, e := range entries {
+			assert.Equal(t, "tips", e.Category)
+		}
+	})
+
+	t.Run("topK limits results", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.AllByCategory("tips", 1, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(entries))
+		assert.Equal(t, "high-score", entries[0].ID)
+	})
+
+	t.Run("results sorted by weighted score descending", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.AllByCategory("tips", 0, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 2, len(entries))
+		assert.Equal(t, "high-score", entries[0].ID)
+		assert.Equal(t, "low-score", entries[1].ID)
+	})
+
+	t.Run("unknown category returns empty", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.AllByCategory("nonexistent", 0, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, len(entries))
+	})
+
+	t.Run("topK zero returns all", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.AllByCategory("tips", 0, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 2, len(entries))
+	})
+}
+
+func TestQueryByCategory(t *testing.T) {
+	t.Run("matches by content keyword", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.QueryByCategory("tips", "errors", 0, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(entries))
+		assert.Equal(t, "high-score", entries[0].ID)
+	})
+
+	t.Run("matches by tag keyword", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.QueryByCategory("tips", "logging", 0, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(entries))
+		assert.Equal(t, "low-score", entries[0].ID)
+	})
+
+	t.Run("empty query returns all in category", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.QueryByCategory("tips", "", 0, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 2, len(entries))
+	})
+
+	t.Run("no match returns empty", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.QueryByCategory("tips", "zzznomatch", 0, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, len(entries))
+	})
+
+	t.Run("wrong category returns empty", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.QueryByCategory("other", "go", 0, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, len(entries))
+	})
+
+	t.Run("topK limits results", func(t *testing.T) {
+		s, _ := newTestStore(t, categoryScoredYAML)
+
+		entries, err := s.QueryByCategory("tips", "", 1, nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(entries))
+		assert.Equal(t, "high-score", entries[0].ID)
+	})
+}
+
+func TestPromote(t *testing.T) {
+	newTwoScopeStore := func(t *testing.T) (*YAMLStore, string, string) {
+		t.Helper()
+		dir := t.TempDir()
+		globalPath := filepath.Join(dir, "global.yaml")
+		projectPath := filepath.Join(dir, "project.yaml")
+		err := os.WriteFile(globalPath, []byte(globalScopeYAML), 0o644)
+		assert.NoError(t, err)
+		err = os.WriteFile(projectPath, []byte(`version: 1
+entries: []
+`), 0o644)
+		assert.NoError(t, err)
+		s, err := New(map[store.Scope]string{
+			store.ScopeGlobal: globalPath,
+			"project":         projectPath,
+		})
+		assert.NoError(t, err)
+		return s, globalPath, projectPath
+	}
+
+	t.Run("moves entry from source to target scope", func(t *testing.T) {
+		s, _, _ := newTwoScopeStore(t)
+
+		err := s.Promote("global-entry", "project")
+		assert.NoError(t, err)
+
+		// no longer in global
+		global, err := s.All([]store.Scope{store.ScopeGlobal})
+		assert.NoError(t, err)
+		assert.Equal(t, 0, len(global))
+
+		// now in project
+		project, err := s.All([]store.Scope{"project"})
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(project))
+		assert.Equal(t, "global-entry", project[0].ID)
+		assert.Equal(t, "project", project[0].Scope)
+	})
+
+	t.Run("unknown target scope returns error", func(t *testing.T) {
+		s, _, _ := newTwoScopeStore(t)
+
+		err := s.Promote("global-entry", "nonexistent")
+		assert.Error(t, err)
+	})
+
+	t.Run("unknown entry returns error", func(t *testing.T) {
+		s, _, _ := newTwoScopeStore(t)
+
+		err := s.Promote("does-not-exist", "project")
+		assert.Error(t, err)
+	})
+
+	t.Run("persistence", func(t *testing.T) {
+		s, globalPath, projectPath := newTwoScopeStore(t)
+
+		err := s.Promote("global-entry", "project")
+		assert.NoError(t, err)
+
+		s2, err := New(map[store.Scope]string{
+			store.ScopeGlobal: globalPath,
+			"project":         projectPath,
+		})
+		assert.NoError(t, err)
+
+		_, err = s2.Get("global-entry")
+		assert.NoError(t, err)
+
+		project, err := s2.All([]store.Scope{"project"})
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(project))
+	})
+}
+
+func TestQuery(t *testing.T) {
+	s, _ := newTestStore(t, loadTestdata(t))
+
+	t.Run("empty category and tags returns all", func(t *testing.T) {
+		entries, err := s.Query("", nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 5, len(entries))
+	})
+
+	t.Run("filter by category", func(t *testing.T) {
+		entries, err := s.Query("syntax", nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(entries))
+		assert.Equal(t, "go-error-wrapping", entries[0].ID)
+	})
+
+	t.Run("filter by tag", func(t *testing.T) {
+		entries, err := s.Query("", []string{"go"})
+		assert.NoError(t, err)
+		assert.Equal(t, 2, len(entries)) // go-error-wrapping and service-layer-pattern both have "go" tag
+	})
+
+	t.Run("filter by category and tag", func(t *testing.T) {
+		entries, err := s.Query("syntax", []string{"go"})
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(entries))
+		assert.Equal(t, "go-error-wrapping", entries[0].ID)
+	})
+
+	t.Run("tag match is case-insensitive", func(t *testing.T) {
+		entries, err := s.Query("", []string{"GO"})
+		assert.NoError(t, err)
+		assert.Equal(t, 2, len(entries))
+	})
+
+	t.Run("multiple tags are ANDed", func(t *testing.T) {
+		entries, err := s.Query("", []string{"go", "errors"})
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(entries))
+		assert.Equal(t, "go-error-wrapping", entries[0].ID)
+	})
+
+	t.Run("non-existent tag returns empty", func(t *testing.T) {
+		entries, err := s.Query("", []string{"zzznomatch"})
+		assert.NoError(t, err)
+		assert.Equal(t, 0, len(entries))
+	})
+
+	t.Run("non-existent category returns empty", func(t *testing.T) {
+		entries, err := s.Query("nonexistent", nil)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, len(entries))
+	})
+}
+
+func TestWeightedScore(t *testing.T) {
+	t.Run("recent hit has higher score than old hit", func(t *testing.T) {
+		recent := store.Entry{Score: 1.0, LastHit: time.Now()}
+		old := store.Entry{Score: 1.0, LastHit: time.Now().Add(-365 * 24 * time.Hour)}
+		assert.True(t, weightedScore(recent) > weightedScore(old))
+	})
+
+	t.Run("higher base score wins with same recency", func(t *testing.T) {
+		t1 := time.Now().Add(-24 * time.Hour)
+		high := store.Entry{Score: 10.0, LastHit: t1}
+		low := store.Entry{Score: 1.0, LastHit: t1}
+		assert.True(t, weightedScore(high) > weightedScore(low))
+	})
+}
