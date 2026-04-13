@@ -6,7 +6,7 @@ before:
 
 builds:
   - id: mnemonic
-    main: ./cmd/mnemonic/main.go
+    main: ./cmd/mnemonic
     binary: mnemonic
     env:
       - CGO_ENABLED=0

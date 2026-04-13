@@ -8,8 +8,6 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/jimschubert/mnemonic/internal/config"
-	"github.com/jimschubert/mnemonic/internal/server"
-	"github.com/jimschubert/mnemonic/internal/store"
 	"github.com/sethvargo/go-envconfig"
 )
 
@@ -20,26 +18,10 @@ var (
 )
 
 var CLI struct {
-	Default DefaultCmd       `hidden:"" cmd:"" default:"withargs" help:"Ensures the daemon is running, starting if it's not (default)"`
+	// Default command does not yet do any daemon stuff. I copied this from jimschubert/hi, and plan to implement the daemon logic later.
+	Default ServerCmd        `hidden:"" cmd:"" default:"withargs" help:"Ensures the daemon is running, starting if it's not (default)"`
+	Server  ServerCmd        `cmd:"" help:"Start the mnemonic server"`
 	Version kong.VersionFlag `short:"v" help:"Print version information"`
-}
-
-// DefaultCmd runs when the user doesn't specify a command.
-type DefaultCmd struct {
-	ServerAddr string `help:"Address to listen on for MCP requests" default:"localhost:20001" env:"MNEMONIC_SERVER_ADDR"`
-}
-
-func (c *DefaultCmd) Run(logger *log.Logger, conf config.Config) error {
-	if c.ServerAddr != "" {
-		if conf.ServerAddr != "" && conf.ServerAddr != c.ServerAddr {
-			logger.Printf("warning: MCP address specified in both config and CLI, using CLI value: %s", c.ServerAddr)
-		}
-		conf.ServerAddr = c.ServerAddr
-	}
-
-	noop := &store.NoopStore{}
-	mcpServer := server.NewServer(noop, conf)
-	return mcpServer.Serve(context.Background())
 }
 
 func main() {

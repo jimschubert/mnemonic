@@ -19,6 +19,10 @@ func IsMandatoryCategory(head string) bool {
 //
 //goland:noinspection GoUnusedExportedFunction
 func WithAdditionalMandatoryCategories(categories []string) {
+	if len(categories) == 0 {
+		return
+	}
+
 	onceMandatory.Do(func() {
 		// only allow adding
 		mandatory = append(mandatory, categories...)

@@ -25,11 +25,15 @@ type file struct {
 
 var _ store.Store = (*YAMLStore)(nil)
 
+const flushInterval = 30 * time.Second
+
 // YAMLStore holds one or more YAML files (one per scope path).
 type YAMLStore struct {
 	mu    sync.RWMutex
 	files map[store.Scope]string
 	data  map[store.Scope]*file
+	dirty map[store.Scope]bool
+	done  chan struct{}
 }
 
 // New creates a YAMLStore. The caller provides a mapping of scope names to a absolute or relative file path.
@@ -45,10 +49,9 @@ func New(scopePaths map[store.Scope]string) (*YAMLStore, error) {
 	s := &YAMLStore{
 		files: scopePaths,
 		data:  make(map[store.Scope]*file),
+		dirty: make(map[store.Scope]bool),
+		done:  make(chan struct{}),
 	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	for scope, path := range scopePaths {
 		if err := s.load(scope, path); err != nil {
@@ -56,13 +59,35 @@ func New(scopePaths map[store.Scope]string) (*YAMLStore, error) {
 		}
 	}
 
+	go s.flushLoop()
 	return s, nil
 }
 
+func (s *YAMLStore) flushLoop() {
+	t := time.NewTicker(flushInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			_ = s.flush()
+		case <-s.done:
+			return
+		}
+	}
+}
+
+// Close stops the background flush goroutine and persists any dirty scopes.
+func (s *YAMLStore) Close() error {
+	close(s.done)
+	return s.flush()
+}
+
 func (s *YAMLStore) All(scopes []store.Scope) ([]store.Entry, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.allEntries(s.scopesForQuery(scopes)), nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries := s.allEntries(s.scopesForQuery(scopes))
+	s.markHits(time.Now(), entries)
+	return entries, nil
 }
 
 func (s *YAMLStore) ListHeads(scopes []store.Scope) ([]store.HeadInfo, error) {
@@ -93,8 +118,8 @@ func (s *YAMLStore) Get(id string) (*store.Entry, error) {
 
 // AllByCategory returns entries in the given category, sorted by weighted score.
 func (s *YAMLStore) AllByCategory(category string, topK int, scopes []store.Scope) ([]store.Entry, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var candidates []store.Entry
 	for _, e := range s.allEntries(s.scopesForQuery(scopes)) {
 		if e.Category == category {
@@ -105,13 +130,14 @@ func (s *YAMLStore) AllByCategory(category string, topK int, scopes []store.Scop
 	if topK > 0 && len(candidates) > topK {
 		candidates = candidates[:topK]
 	}
+	s.markHits(time.Now(), candidates)
 	return candidates, nil
 }
 
 // QueryByCategory returns entries in the given category whose content or tags contain any query term (case-insensitive), sorted by weighted score.
 func (s *YAMLStore) QueryByCategory(category, query string, topK int, scopes []store.Scope) ([]store.Entry, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	queryTerms := strings.Fields(strings.ToLower(query))
 	var candidates []store.Entry
 	for _, e := range s.allEntries(s.scopesForQuery(scopes)) {
@@ -126,16 +152,18 @@ func (s *YAMLStore) QueryByCategory(category, query string, topK int, scopes []s
 	if topK > 0 && len(candidates) > topK {
 		candidates = candidates[:topK]
 	}
+	s.markHits(time.Now(), candidates)
 	return candidates, nil
 }
 
 func (s *YAMLStore) Query(category string, tags []string) ([]*store.Entry, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	lower := make([]string, len(tags))
 	for i, t := range tags {
 		lower[i] = strings.ToLower(t)
 	}
+	var hits []store.Entry
 	var out []*store.Entry
 	for _, e := range s.allEntries(s.scopesForQuery(nil)) {
 		if category != "" && e.Category != category {
@@ -144,8 +172,10 @@ func (s *YAMLStore) Query(category string, tags []string) ([]*store.Entry, error
 		if !tagsMatch(e.Tags, lower) {
 			continue
 		}
+		hits = append(hits, e)
 		out = append(out, new(e))
 	}
+	s.markHits(time.Now(), hits)
 	return out, nil
 }
 
@@ -212,6 +242,40 @@ func (s *YAMLStore) Promote(id string, targetScope store.Scope) error {
 		}
 	}
 	return fmt.Errorf("entry %q not found", id)
+}
+
+// markHits increments HitCount and sets LastHit for the entries in s.data that match the given slice.
+// Caller must hold write lock.
+func (s *YAMLStore) markHits(now time.Time, entries []store.Entry) {
+	if len(entries) == 0 {
+		return
+	}
+	ids := make(map[string]struct{}, len(entries))
+	for _, e := range entries {
+		ids[e.ID] = struct{}{}
+	}
+	for scope, f := range s.data {
+		for i, e := range f.Entries {
+			if _, ok := ids[e.ID]; ok {
+				f.Entries[i].HitCount++
+				f.Entries[i].LastHit = now
+				s.dirty[scope] = true
+			}
+		}
+	}
+}
+
+// flush persists all dirty scopes and not yet written to disk.
+func (s *YAMLStore) flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for scope := range s.dirty {
+		if err := s.persist(scope); err != nil {
+			return err
+		}
+		delete(s.dirty, scope)
+	}
+	return nil
 }
 
 func (s *YAMLStore) Score(id string, delta float64) error {
@@ -342,9 +406,14 @@ func sortByWeightedScore(entries []store.Entry) {
 }
 
 // weightedScore adds a recency bias to the entry's score. Recent hits increase the score, while old entries decay over time.
-// The half-life is ~14 days (ln(2) / 0.05).
+// The half-life is ~14 days (ln(2) / 0.05). LastHit is used as the recency reference; Created is the fallback for
+// entries that have never been queried or reinforced.
 func weightedScore(e store.Entry) float64 {
-	days := time.Since(e.LastHit).Hours() / 24
+	ref := e.LastHit
+	if ref.IsZero() {
+		ref = e.Created
+	}
+	days := time.Since(ref).Hours() / 24
 	decay := math.Exp(-0.05 * days)
 	return e.Score * decay
 }

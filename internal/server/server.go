@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -119,7 +120,24 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.server == nil {
 		return fmt.Errorf("server not running")
 	}
-	return s.server.Shutdown(ctx)
+	var closer io.Closer
+	if c, ok := s.store.(io.Closer); ok {
+		closer = c
+	}
+
+	s.logger.Info("Shutting down MCP server", "version", serverVersion)
+	if closer != nil {
+		defer func() {
+			if err := closer.Close(); err != nil {
+				s.logger.Warn("failed to close store on shutdown", "err", err)
+			}
+		}()
+	}
+
+	if err := s.server.Shutdown(ctx); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Server) registerTools() {
@@ -137,17 +155,82 @@ func (s *Server) registerTools() {
 		Name:        "mnemonic_reinforce",
 		Description: "Adjust the relevance score of an entry based on human-in-the-loop approval or rejection.",
 	}, s.handleReinforce)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "mnemonic_list_heads",
+		Description: "List all memory categories (attention heads) with entry counts.",
+	}, s.handleListHeads)
 }
 
 // handleQuery processes the mnemonic_query tool execution.
-func (s *Server) handleQuery(ctx context.Context, req *mcp.CallToolRequest, input QueryInput) (*mcp.CallToolResult, QueryOutput, error) {
-	return nil, QueryOutput{}, nil
+func (s *Server) handleQuery(_ context.Context, _ *mcp.CallToolRequest, input QueryInput) (*mcp.CallToolResult, QueryOutput, error) {
+	topK := input.TopK
+	if topK <= 0 {
+		topK = 5
+	}
+	scopes := make([]store.Scope, len(input.Scopes))
+	for i, sc := range input.Scopes {
+		scopes[i] = store.Scope(sc)
+	}
+
+	var entries []store.Entry
+	var err error
+	if input.Category != "" {
+		entries, err = s.store.QueryByCategory(input.Category, input.Query, topK, scopes)
+	} else {
+		entries, err = s.store.All(scopes)
+		if err == nil && len(entries) > topK {
+			entries = entries[:topK]
+		}
+	}
+	if err != nil {
+		return nil, QueryOutput{}, err
+	}
+	results := make([]QueryResult, len(entries))
+	for i, e := range entries {
+		results[i] = QueryResult{
+			ID:       e.ID,
+			Content:  e.Content,
+			Category: e.Category,
+			Tags:     e.Tags,
+			Scope:    e.Scope,
+			Source:   e.Source,
+		}
+	}
+	return nil, QueryOutput{Entries: results}, nil
 }
 
-func (s *Server) handleAdd(ctx context.Context, req *mcp.CallToolRequest, input AddInput) (*mcp.CallToolResult, AddOutput, error) {
-	return nil, AddOutput{}, nil
+func (s *Server) handleAdd(_ context.Context, _ *mcp.CallToolRequest, input AddInput) (*mcp.CallToolResult, AddOutput, error) {
+	scope := input.Scope
+	if scope == "" {
+		scope = "project"
+	}
+	source := input.Source
+	if source == "" {
+		source = "agent:" + time.Now().Format("2006-01-02")
+	}
+	entry := &store.Entry{
+		Content:  input.Content,
+		Category: input.Category,
+		Tags:     input.Tags,
+		Scope:    scope,
+		Source:   source,
+		Score:    1.0,
+	}
+	if err := s.store.Upsert(entry); err != nil {
+		return nil, AddOutput{}, err
+	}
+	return nil, AddOutput{Status: "added", ID: entry.ID, Scope: scope, Category: input.Category}, nil
 }
 
-func (s *Server) handleReinforce(ctx context.Context, req *mcp.CallToolRequest, input ReinforceInput) (*mcp.CallToolResult, ReinforceOutput, error) {
-	return nil, ReinforceOutput{}, nil
+func (s *Server) handleReinforce(_ context.Context, _ *mcp.CallToolRequest, input ReinforceInput) (*mcp.CallToolResult, ReinforceOutput, error) {
+	if err := s.store.Score(input.ID, input.Delta); err != nil {
+		return nil, ReinforceOutput{}, err
+	}
+	return nil, ReinforceOutput{Status: "updated", ID: input.ID, Delta: input.Delta}, nil
+}
+
+func (s *Server) handleListHeads(_ context.Context, _ *mcp.CallToolRequest, _ ListHeadsInput) (*mcp.CallToolResult, ListHeadsOutput, error) {
+	heads, err := s.store.ListHeads(nil)
+	return nil, ListHeadsOutput{Heads: heads}, err
 }
