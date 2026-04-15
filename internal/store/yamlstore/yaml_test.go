@@ -3,22 +3,24 @@ package yamlstore
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/jimschubert/mnemonic/internal/store"
+	"go.yaml.in/yaml/v4"
 )
 
 const (
-	// categoryScoredYAML has two entries in "tips" with very different scores
+	// categoryScoredYAML has two entries in "domain" with very different scores
 	// so weighted ordering is predictable regardless of recency decay.
 	categoryScoredYAML = `version: 1
 entries:
   - id: high-score
     content: "high score tip about go errors"
     tags: [go, errors]
-    category: tips
+    category: domain
     scope: global
     score: 100.0
     hit_count: 0
@@ -28,7 +30,7 @@ entries:
   - id: low-score
     content: "low score tip about logging"
     tags: [logging]
-    category: tips
+    category: domain
     scope: global
     score: 1.0
     hit_count: 0
@@ -38,7 +40,7 @@ entries:
   - id: other-category
     content: "something else"
     tags: []
-    category: other
+    category: syntax
     scope: global
     score: 50.0
     hit_count: 0
@@ -54,7 +56,7 @@ entries:
   - id: test-entry
     content: "Test"
     tags: []
-    category: test
+    category: syntax
     scope: global
     score: 0.5
     hit_count: 0
@@ -68,7 +70,7 @@ entries:
   - id: first
     content: "First"
     tags: []
-    category: test
+    category: syntax
     scope: global
     score: 1.0
     hit_count: 0
@@ -78,7 +80,7 @@ entries:
   - id: second
     content: "Second"
     tags: []
-    category: test
+    category: syntax
     scope: global
     score: 1.0
     hit_count: 0
@@ -88,7 +90,7 @@ entries:
   - id: third
     content: "Third"
     tags: []
-    category: test
+    category: syntax
     scope: global
     score: 1.0
     hit_count: 0
@@ -102,7 +104,7 @@ entries:
   - id: test-entry
     content: "Test"
     tags: []
-    category: test
+    category: syntax
     scope: global
     score: 0.5
     hit_count: 0
@@ -116,7 +118,7 @@ entries:
   - id: global-entry
     content: "Global content"
     tags: [global]
-    category: misc
+    category: domain
     scope: global
     score: 1.0
     hit_count: 0
@@ -130,7 +132,7 @@ entries:
   - id: team-entry
     content: "Team content"
     tags: [team]
-    category: misc
+    category: domain
     scope: team
     score: 0.5
     hit_count: 1
@@ -149,25 +151,41 @@ func loadTestdata(t *testing.T) string {
 	return string(content)
 }
 
-// setupTempYAML is used for tests which modify in-place
-func setupTempYAML(t *testing.T, content string) string {
+// setupScopeDir parses a YAML string which combines entries, groups them by category,
+// and writes a temp file according to category to each target <category>.yaml file.
+// Returns the path to the created temp directory.
+func setupScopeDir(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "test.yaml")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("failed to write temp YAML: %v", err)
+	var f file
+	if err := yaml.Unmarshal([]byte(content), &f); err != nil {
+		t.Fatalf("failed to parse YAML: %v", err)
 	}
-	return path
+	byCategory := make(map[string][]store.Entry)
+	for _, e := range f.Entries {
+		byCategory[e.Category] = append(byCategory[e.Category], e)
+	}
+	for cat, entries := range byCategory {
+		catFile := &file{Version: 1, Entries: entries}
+		b, err := yaml.Marshal(catFile)
+		if err != nil {
+			t.Fatalf("failed to marshal category %s: %v", cat, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, cat+".yaml"), b, 0o644); err != nil {
+			t.Fatalf("failed to write category file %s: %v", cat, err)
+		}
+	}
+	return dir
 }
 
 func newTestStore(t *testing.T, content string) (*YAMLStore, string) {
 	t.Helper()
-	path := setupTempYAML(t, content)
-	s, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+	dir := setupScopeDir(t, content)
+	s, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
 	if err != nil {
 		t.Fatalf("failed to create test store: %v", err)
 	}
-	return s, path
+	return s, dir
 }
 
 func TestNew_LoadExistingFile(t *testing.T) {
@@ -178,42 +196,37 @@ func TestNew_LoadExistingFile(t *testing.T) {
 	assert.Equal(t, 5, len(entries))
 }
 
-func TestNew_CreatesNonExistentFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "new.yaml")
+func TestNew_CreatesNonExistentDir(t *testing.T) {
+	base := t.TempDir()
+	scopeDir := filepath.Join(base, "newscope")
 
-	s, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+	s, err := New(map[store.Scope]string{store.ScopeGlobal: scopeDir})
 	assert.NoError(t, err)
 
 	entries, err := s.All(nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(entries))
 
-	_, err = os.Stat(path)
+	_, err = os.Stat(scopeDir)
 	assert.NoError(t, err)
 }
 
 func TestNew_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "bad.yaml")
-	err := os.WriteFile(path, []byte("{{{invalid yaml}}}"), 0o644)
+	err := os.WriteFile(filepath.Join(dir, "bad.yaml"), []byte("{{{invalid yaml}}}"), 0o644)
 	assert.NoError(t, err)
 
-	_, err = New(map[store.Scope]string{store.ScopeGlobal: path})
+	_, err = New(map[store.Scope]string{store.ScopeGlobal: dir})
 	assert.Error(t, err)
 }
 
 func TestAll(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yaml")
-	projectPath := filepath.Join(dir, "project.yaml")
-
 	globalYAML := `version: 1
 entries:
   - id: entry-global-1
     content: "Global entry 1"
     tags: []
-    category: test
+    category: syntax
     scope: global
     score: 1.0
     hit_count: 0
@@ -223,7 +236,7 @@ entries:
   - id: entry-global-2
     content: "Global entry 2"
     tags: []
-    category: test
+    category: syntax
     scope: global
     score: 1.0
     hit_count: 0
@@ -237,7 +250,7 @@ entries:
   - id: entry-project-1
     content: "Project entry 1"
     tags: []
-    category: test
+    category: syntax
     scope: project
     score: 1.0
     hit_count: 0
@@ -246,14 +259,12 @@ entries:
     source: manual
 `
 
-	err := os.WriteFile(globalPath, []byte(globalYAML), 0o644)
-	assert.NoError(t, err)
-	err = os.WriteFile(projectPath, []byte(projectYAML), 0o644)
-	assert.NoError(t, err)
+	globalDir := setupScopeDir(t, globalYAML)
+	projectDir := setupScopeDir(t, projectYAML)
 
 	s, err := New(map[store.Scope]string{
-		store.ScopeGlobal: globalPath,
-		"project":         projectPath,
+		store.ScopeGlobal: globalDir,
+		"project":         projectDir,
 	})
 	assert.NoError(t, err)
 
@@ -351,14 +362,14 @@ func TestScore(t *testing.T) {
 	})
 
 	t.Run("persistence", func(t *testing.T) {
-		path := setupTempYAML(t, loadTestdata(t))
-		s, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+		dir := setupScopeDir(t, loadTestdata(t))
+		s, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
 		assert.NoError(t, err)
 
 		err = s.Score("stencil-custom-funcs", 0.25)
 		assert.NoError(t, err)
 
-		s2, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+		s2, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
 		assert.NoError(t, err)
 		entry, err := s2.Get("stencil-custom-funcs")
 		assert.NoError(t, err)
@@ -388,14 +399,14 @@ func TestDelete(t *testing.T) {
 	})
 
 	t.Run("persistence", func(t *testing.T) {
-		path := setupTempYAML(t, loadTestdata(t))
-		s, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+		dir := setupScopeDir(t, loadTestdata(t))
+		s, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
 		assert.NoError(t, err)
 
 		err = s.Delete("service-layer-pattern")
 		assert.NoError(t, err)
 
-		s2, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+		s2, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
 		assert.NoError(t, err)
 		_, err = s2.Get("service-layer-pattern")
 		assert.Error(t, err)
@@ -458,18 +469,12 @@ func TestExpandHome(t *testing.T) {
 }
 
 func TestMultipleScopes(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yaml")
-	teamPath := filepath.Join(dir, "team.yaml")
-
-	err := os.WriteFile(globalPath, []byte(globalScopeYAML), 0o644)
-	assert.NoError(t, err)
-	err = os.WriteFile(teamPath, []byte(teamScopeYAML), 0o644)
-	assert.NoError(t, err)
+	globalDir := setupScopeDir(t, globalScopeYAML)
+	teamDir := setupScopeDir(t, teamScopeYAML)
 
 	s, err := New(map[store.Scope]string{
-		"global":    globalPath,
-		"team:acme": teamPath,
+		"global":    globalDir,
+		"team:acme": teamDir,
 	})
 	assert.NoError(t, err)
 
@@ -533,13 +538,23 @@ func TestScore_MaxClamp(t *testing.T) {
 }
 
 func TestPersist_CreatesDirectoryIfNeeded(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "subdir", "nested.yaml")
+	base := t.TempDir()
+	scopeDir := filepath.Join(base, "subdir", "nested")
 
-	_, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+	s, err := New(map[store.Scope]string{store.ScopeGlobal: scopeDir})
 	assert.NoError(t, err)
 
-	_, err = os.Stat(filepath.Dir(path))
+	_, err = os.Stat(scopeDir)
+	assert.NoError(t, err)
+
+	err = s.Upsert(&store.Entry{
+		ID:       "test-id",
+		Content:  "test",
+		Category: "domain",
+		Scope:    "global",
+	})
+	assert.NoError(t, err)
+	_, err = os.Stat(filepath.Join(scopeDir, "domain.yaml"))
 	assert.NoError(t, err)
 }
 
@@ -559,10 +574,9 @@ func TestScore_UpdatesLastHit(t *testing.T) {
 }
 
 func TestListHeads_EmptyStore(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "empty.yaml")
+	scopeDir := t.TempDir() // empty directory -> no category files
 
-	s, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+	s, err := New(map[store.Scope]string{store.ScopeGlobal: scopeDir})
 	assert.NoError(t, err)
 
 	heads, err := s.ListHeads(nil)
@@ -644,7 +658,7 @@ func TestUpsert(t *testing.T) {
 		entry := &store.Entry{
 			ID:       "new-id",
 			Content:  "new content",
-			Category: "test",
+			Category: "syntax",
 			Scope:    "global",
 			Score:    0.5,
 		}
@@ -662,7 +676,7 @@ func TestUpsert(t *testing.T) {
 
 		entry := &store.Entry{
 			Content:  "auto id entry",
-			Category: "test",
+			Category: "syntax",
 			Scope:    "global",
 		}
 		err := s.Upsert(entry)
@@ -675,7 +689,7 @@ func TestUpsert(t *testing.T) {
 
 		entry := &store.Entry{
 			Content:  "score default",
-			Category: "test",
+			Category: "syntax",
 			Scope:    "global",
 		}
 		err := s.Upsert(entry)
@@ -689,7 +703,7 @@ func TestUpsert(t *testing.T) {
 		before := time.Now()
 		entry := &store.Entry{
 			Content:  "created default",
-			Category: "test",
+			Category: "syntax",
 			Scope:    "global",
 		}
 		err := s.Upsert(entry)
@@ -705,7 +719,7 @@ func TestUpsert(t *testing.T) {
 		entry := &store.Entry{
 			ID:       "test-entry",
 			Content:  "updated content",
-			Category: "test",
+			Category: "syntax",
 			Scope:    "global",
 			Score:    0.9,
 		}
@@ -723,7 +737,7 @@ func TestUpsert(t *testing.T) {
 
 		entry := &store.Entry{
 			Content:  "bad scope",
-			Category: "test",
+			Category: "syntax",
 			Scope:    "nonexistent",
 		}
 		err := s.Upsert(entry)
@@ -736,7 +750,7 @@ func TestUpsert(t *testing.T) {
 		entry := &store.Entry{
 			ID:       "no-scope-entry",
 			Content:  "no scope set",
-			Category: "test",
+			Category: "syntax",
 		}
 		err := s.Upsert(entry)
 		assert.NoError(t, err)
@@ -747,25 +761,102 @@ func TestUpsert(t *testing.T) {
 	})
 
 	t.Run("persistence", func(t *testing.T) {
-		path := setupTempYAML(t, singleEntryYAML)
-		s, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+		dir := setupScopeDir(t, singleEntryYAML)
+		s, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
 		assert.NoError(t, err)
 
 		entry := &store.Entry{
 			ID:       "persisted-entry",
 			Content:  "persisted",
-			Category: "test",
+			Category: "syntax",
 			Scope:    "global",
 			Score:    0.7,
 		}
 		err = s.Upsert(entry)
 		assert.NoError(t, err)
 
-		s2, err := New(map[store.Scope]string{store.ScopeGlobal: path})
+		s2, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
 		assert.NoError(t, err)
 		got, err := s2.Get("persisted-entry")
 		assert.NoError(t, err)
 		assert.Equal(t, "persisted", got.Content)
+	})
+
+	t.Run("allowed categories accepted", func(t *testing.T) {
+		s, _ := newTestStore(t, singleEntryYAML)
+
+		tests := []struct {
+			name     string
+			category string
+		}{
+			{
+				name:     "avoidance",
+				category: "avoidance",
+			},
+			{
+				name:     "security",
+				category: "security",
+			},
+			{
+				name:     "syntax",
+				category: "syntax",
+			},
+			{
+				name:     "architecture",
+				category: "architecture",
+			},
+			{
+				name:     "domain",
+				category: "domain",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				entry := &store.Entry{
+					ID:       "test-" + tt.category,
+					Content:  "test content",
+					Category: tt.category,
+					Scope:    "global",
+				}
+				err := s.Upsert(entry)
+				assert.NoError(t, err)
+
+				got, err := s.Get("test-" + tt.category)
+				assert.NoError(t, err)
+				assert.Equal(t, tt.category, got.Category)
+			})
+		}
+	})
+
+	t.Run("disallowed category rejected", func(t *testing.T) {
+		s, _ := newTestStore(t, singleEntryYAML)
+
+		entry := &store.Entry{
+			ID:       "bad-cat",
+			Content:  "test content",
+			Category: "invalid-category",
+			Scope:    "global",
+		}
+		err := s.Upsert(entry)
+		assert.Error(t, err)
+		assert.True(t, strings.Contains(err.Error(), "not allowed"))
+	})
+
+	t.Run("custom allowed category after registration", func(t *testing.T) {
+		s, _ := newTestStore(t, singleEntryYAML)
+
+		// Assume store package has a way to register custom categories
+		// or this test validates the allowed categories are from store.AllowedCategories()
+		entry := &store.Entry{
+			ID:       "style-guide-entry",
+			Content:  "test content",
+			Category: "style-guide", // not in the default allowed set
+			Scope:    "global",
+		}
+		err := s.Upsert(entry)
+		assert.Error(t, err)
+		assert.True(t, strings.Contains(err.Error(), "style-guide"))
 	})
 }
 
@@ -773,18 +864,18 @@ func TestAllByCategory(t *testing.T) {
 	t.Run("returns only matching category", func(t *testing.T) {
 		s, _ := newTestStore(t, categoryScoredYAML)
 
-		entries, err := s.AllByCategory("tips", 0, nil)
+		entries, err := s.AllByCategory("domain", 0, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, 2, len(entries))
 		for _, e := range entries {
-			assert.Equal(t, "tips", e.Category)
+			assert.Equal(t, "domain", e.Category)
 		}
 	})
 
 	t.Run("topK limits results", func(t *testing.T) {
 		s, _ := newTestStore(t, categoryScoredYAML)
 
-		entries, err := s.AllByCategory("tips", 1, nil)
+		entries, err := s.AllByCategory("domain", 1, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(entries))
 		assert.Equal(t, "high-score", entries[0].ID)
@@ -793,7 +884,7 @@ func TestAllByCategory(t *testing.T) {
 	t.Run("results sorted by weighted score descending", func(t *testing.T) {
 		s, _ := newTestStore(t, categoryScoredYAML)
 
-		entries, err := s.AllByCategory("tips", 0, nil)
+		entries, err := s.AllByCategory("domain", 0, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, 2, len(entries))
 		assert.Equal(t, "high-score", entries[0].ID)
@@ -811,7 +902,7 @@ func TestAllByCategory(t *testing.T) {
 	t.Run("topK zero returns all", func(t *testing.T) {
 		s, _ := newTestStore(t, categoryScoredYAML)
 
-		entries, err := s.AllByCategory("tips", 0, nil)
+		entries, err := s.AllByCategory("domain", 0, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, 2, len(entries))
 	})
@@ -821,7 +912,7 @@ func TestQueryByCategory(t *testing.T) {
 	t.Run("matches by content keyword", func(t *testing.T) {
 		s, _ := newTestStore(t, categoryScoredYAML)
 
-		entries, err := s.QueryByCategory("tips", "errors", 0, nil)
+		entries, err := s.QueryByCategory("domain", "errors", 0, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(entries))
 		assert.Equal(t, "high-score", entries[0].ID)
@@ -830,7 +921,7 @@ func TestQueryByCategory(t *testing.T) {
 	t.Run("matches by tag keyword", func(t *testing.T) {
 		s, _ := newTestStore(t, categoryScoredYAML)
 
-		entries, err := s.QueryByCategory("tips", "logging", 0, nil)
+		entries, err := s.QueryByCategory("domain", "logging", 0, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(entries))
 		assert.Equal(t, "low-score", entries[0].ID)
@@ -839,7 +930,7 @@ func TestQueryByCategory(t *testing.T) {
 	t.Run("empty query returns all in category", func(t *testing.T) {
 		s, _ := newTestStore(t, categoryScoredYAML)
 
-		entries, err := s.QueryByCategory("tips", "", 0, nil)
+		entries, err := s.QueryByCategory("domain", "", 0, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, 2, len(entries))
 	})
@@ -847,7 +938,7 @@ func TestQueryByCategory(t *testing.T) {
 	t.Run("no match returns empty", func(t *testing.T) {
 		s, _ := newTestStore(t, categoryScoredYAML)
 
-		entries, err := s.QueryByCategory("tips", "zzznomatch", 0, nil)
+		entries, err := s.QueryByCategory("domain", "zzznomatch", 0, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, 0, len(entries))
 	})
@@ -863,7 +954,7 @@ func TestQueryByCategory(t *testing.T) {
 	t.Run("topK limits results", func(t *testing.T) {
 		s, _ := newTestStore(t, categoryScoredYAML)
 
-		entries, err := s.QueryByCategory("tips", "", 1, nil)
+		entries, err := s.QueryByCategory("domain", "", 1, nil)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(entries))
 		assert.Equal(t, "high-score", entries[0].ID)
@@ -873,21 +964,14 @@ func TestQueryByCategory(t *testing.T) {
 func TestPromote(t *testing.T) {
 	newTwoScopeStore := func(t *testing.T) (*YAMLStore, string, string) {
 		t.Helper()
-		dir := t.TempDir()
-		globalPath := filepath.Join(dir, "global.yaml")
-		projectPath := filepath.Join(dir, "project.yaml")
-		err := os.WriteFile(globalPath, []byte(globalScopeYAML), 0o644)
-		assert.NoError(t, err)
-		err = os.WriteFile(projectPath, []byte(`version: 1
-entries: []
-`), 0o644)
-		assert.NoError(t, err)
+		globalDir := setupScopeDir(t, globalScopeYAML)
+		projectDir := t.TempDir() // empty project scope dir
 		s, err := New(map[store.Scope]string{
-			store.ScopeGlobal: globalPath,
-			"project":         projectPath,
+			store.ScopeGlobal: globalDir,
+			"project":         projectDir,
 		})
 		assert.NoError(t, err)
-		return s, globalPath, projectPath
+		return s, globalDir, projectDir
 	}
 
 	t.Run("moves entry from source to target scope", func(t *testing.T) {

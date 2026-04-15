@@ -1,0 +1,32 @@
+version: 1
+entries:
+  - id: 870c12e2555414eb
+    content: Defer always executes when a function exits, regardless of whether or not there was an error.
+    tags:
+      - go
+      - defer
+    category: syntax
+    scope: project
+    score: 1
+    hit_count: 1
+    last_hit: 2026-04-13T09:06:53.580046-04:00
+    created: 2026-04-13T09:05:45.233033-04:00
+    source: agent:2026-04-13
+  - id: c26342f3fae79bbd
+    content: |
+      Use "acme" for example company/scope names as a throwback to Rob Pike.
+      Other Looney Tunes character names are also acceptable in tests and docs:
+      Daffy, Bugs, Road Runner, Marvin, Tasmanian Devil. This keeps examples
+      fun and maintains a playful coding culture.
+    tags:
+      - naming-convention
+      - examples
+      - looney-tunes
+      - rob-pike
+    category: syntax
+    scope: project
+    score: 1
+    hit_count: 0
+    last_hit: 0001-01-01T00:00:00Z
+    created: 2026-04-15T07:59:14.677368-04:00
+    source: agent:2026-04-15

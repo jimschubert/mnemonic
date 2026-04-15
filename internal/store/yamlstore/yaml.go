@@ -17,7 +17,7 @@ import (
 	"go.yaml.in/yaml/v4"
 )
 
-// file is the on-disk format.
+// file is the on-disk format for a single category.
 type file struct {
 	Version int           `yaml:"version"`
 	Entries []store.Entry `yaml:"entries"`
@@ -27,35 +27,49 @@ var _ store.Store = (*YAMLStore)(nil)
 
 const flushInterval = 30 * time.Second
 
-// YAMLStore holds one or more YAML files (one per scope path).
+// YAMLStore holds one or more scope directories, each containing one YAML file per category.
+//
+// Example layout:
+//
+//	~/.mnemonic/global/
+//	 ├── avoidance.yaml
+//	 └── security.yaml
+//	~/.mnemonic/teams/acme/
+//	 └── avoidance.yaml
+//	.mnemonic/project/
+//	 └── domain.yaml
 type YAMLStore struct {
-	mu    sync.RWMutex
-	files map[store.Scope]string
-	data  map[store.Scope]*file
-	dirty map[store.Scope]bool
+	mu sync.RWMutex
+	// dirs maps scope -> directory path
+	dirs map[store.Scope]string
+	// data maps scope -> category -> file
+	data map[store.Scope]map[string]*file
+	// dirty maps scope -> category -> needs flush
+	dirty map[store.Scope]map[string]bool
 	done  chan struct{}
 }
 
-// New creates a YAMLStore. The caller provides a mapping of scope names to a absolute or relative file path.
-// The home directory can be referenced with "~". The file will be loaded or created.
+// New creates a YAMLStore. Call with a mapping of scope names to directory paths.
+// Expands "~" to the home directory. Each directory is scanned for *.yaml files
+// on startup; each file is treated as a category (filename without extension).
 //
 // Example:
 //
 //	store, err := yamlstore.New(map[Scope]string{
-//	    "global": "~/.mnemonic/global.yaml",
-//	    "team:acme": "~/.mnemonic/data/team_acme.yaml",
+//	    "global":    "~/.mnemonic/global/",
+//	    "team:acme": "~/.mnemonic/teams/acme/",
 //	})
-func New(scopePaths map[store.Scope]string) (*YAMLStore, error) {
+func New(scopeDirs map[store.Scope]string) (*YAMLStore, error) {
 	s := &YAMLStore{
-		files: scopePaths,
-		data:  make(map[store.Scope]*file),
-		dirty: make(map[store.Scope]bool),
+		dirs:  scopeDirs,
+		data:  make(map[store.Scope]map[string]*file),
+		dirty: make(map[store.Scope]map[string]bool),
 		done:  make(chan struct{}),
 	}
 
-	for scope, path := range scopePaths {
-		if err := s.load(scope, path); err != nil {
-			return nil, fmt.Errorf("loading scope %q from %s: %w", scope, path, err)
+	for scope, dir := range scopeDirs {
+		if err := s.loadScope(scope, dir); err != nil {
+			return nil, fmt.Errorf("loading scope %q from %s: %w", scope, dir, err)
 		}
 	}
 
@@ -76,7 +90,7 @@ func (s *YAMLStore) flushLoop() {
 	}
 }
 
-// Close stops the background flush goroutine and persists any dirty scopes.
+// Close stops the background flush goroutine and persists any dirty categories.
 func (s *YAMLStore) Close() error {
 	close(s.done)
 	return s.flush()
@@ -117,13 +131,16 @@ func (s *YAMLStore) Get(id string) (*store.Entry, error) {
 }
 
 // AllByCategory returns entries in the given category, sorted by weighted score.
+// Only the per-category file for each scope is accessed, not all files.
 func (s *YAMLStore) AllByCategory(category string, topK int, scopes []store.Scope) ([]store.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var candidates []store.Entry
-	for _, e := range s.allEntries(s.scopesForQuery(scopes)) {
-		if e.Category == category {
-			candidates = append(candidates, e)
+	for _, sc := range s.scopesForQuery(scopes) {
+		if files, ok := s.data[sc]; ok {
+			if f, ok := files[category]; ok {
+				candidates = append(candidates, f.Entries...)
+			}
 		}
 	}
 	sortByWeightedScore(candidates)
@@ -134,18 +151,22 @@ func (s *YAMLStore) AllByCategory(category string, topK int, scopes []store.Scop
 	return candidates, nil
 }
 
-// QueryByCategory returns entries in the given category whose content or tags contain any query term (case-insensitive), sorted by weighted score.
+// QueryByCategory returns entries in the given category whose content or tags contain any query
+// term (case-insensitive), sorted by weighted score. Only the per-category file is accessed per scope.
 func (s *YAMLStore) QueryByCategory(category, query string, topK int, scopes []store.Scope) ([]store.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	queryTerms := strings.Fields(strings.ToLower(query))
 	var candidates []store.Entry
-	for _, e := range s.allEntries(s.scopesForQuery(scopes)) {
-		if e.Category != category {
-			continue
-		}
-		if keywordMatch(e, queryTerms) {
-			candidates = append(candidates, e)
+	for _, sc := range s.scopesForQuery(scopes) {
+		if files, ok := s.data[sc]; ok {
+			if f, ok := files[category]; ok {
+				for _, e := range f.Entries {
+					if keywordMatch(e, queryTerms) {
+						candidates = append(candidates, e)
+					}
+				}
+			}
 		}
 	}
 	sortByWeightedScore(candidates)
@@ -182,12 +203,15 @@ func (s *YAMLStore) Query(category string, tags []string) ([]*store.Entry, error
 func (s *YAMLStore) Upsert(entry *store.Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !store.IsAllowedCategory(entry.Category) {
+		return fmt.Errorf("category %q is not allowed; must be one of %v", entry.Category, store.AllowedCategories())
+	}
 
 	scope := store.Scope(entry.Scope)
 	if scope == "" {
 		scope = store.ScopeGlobal
 	}
-	f, ok := s.data[scope]
+	files, ok := s.data[scope]
 	if !ok {
 		return fmt.Errorf("scope %q is not configured", scope)
 	}
@@ -206,17 +230,24 @@ func (s *YAMLStore) Upsert(entry *store.Entry) error {
 		entry.Created = time.Now()
 	}
 
+	category := entry.Category
+	f, ok := files[category]
+	if !ok {
+		f = &file{Version: 1}
+		files[category] = f
+	}
+
 	for i, e := range f.Entries {
 		// update existing entry
 		if e.ID == entry.ID {
 			f.Entries[i] = *entry
-			return s.persist(scope)
+			return s.persist(scope, category)
 		}
 	}
 
 	// add new entry
 	f.Entries = append(f.Entries, *entry)
-	return s.persist(scope)
+	return s.persist(scope, category)
 }
 
 func (s *YAMLStore) Promote(id string, targetScope store.Scope) error {
@@ -225,19 +256,29 @@ func (s *YAMLStore) Promote(id string, targetScope store.Scope) error {
 	if _, ok := s.data[targetScope]; !ok {
 		return fmt.Errorf("target scope %q is not configured", targetScope)
 	}
-	for scope, f := range s.data {
-		for i, e := range f.Entries {
-			if e.ID == id {
-				// remove from current scope
+	for scope, files := range s.data {
+		if scope == targetScope {
+			continue
+		}
+		for category, f := range files {
+			for i, e := range f.Entries {
+				if e.ID != id {
+					continue
+				}
+				// remove from source scope's category file
 				f.Entries = append(f.Entries[:i], f.Entries[i+1:]...)
-				if err := s.persist(scope); err != nil {
+				if err := s.persist(scope, category); err != nil {
 					// failed to persist removal, put back and return error
 					f.Entries = append(f.Entries[:i], append([]store.Entry{e}, f.Entries[i:]...)...)
 					return err
 				}
 				e.Scope = targetScope.String()
-				s.data[targetScope].Entries = append(s.data[targetScope].Entries, e)
-				return s.persist(targetScope)
+				target := s.data[targetScope]
+				if target[category] == nil {
+					target[category] = &file{Version: 1}
+				}
+				target[category].Entries = append(target[category].Entries, e)
+				return s.persist(targetScope, category)
 			}
 		}
 	}
@@ -254,26 +295,30 @@ func (s *YAMLStore) markHits(now time.Time, entries []store.Entry) {
 	for _, e := range entries {
 		ids[e.ID] = struct{}{}
 	}
-	for scope, f := range s.data {
-		for i, e := range f.Entries {
-			if _, ok := ids[e.ID]; ok {
-				f.Entries[i].HitCount++
-				f.Entries[i].LastHit = now
-				s.dirty[scope] = true
+	for scope, files := range s.data {
+		for category, f := range files {
+			for i, e := range f.Entries {
+				if _, ok := ids[e.ID]; ok {
+					f.Entries[i].HitCount++
+					f.Entries[i].LastHit = now
+					s.dirty[scope][category] = true
+				}
 			}
 		}
 	}
 }
 
-// flush persists all dirty scopes and not yet written to disk.
+// flush persists all dirty (scope, category) pairs.
 func (s *YAMLStore) flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for scope := range s.dirty {
-		if err := s.persist(scope); err != nil {
-			return err
+	for scope, files := range s.dirty {
+		for category := range files {
+			if err := s.persist(scope, category); err != nil {
+				return err
+			}
+			delete(files, category)
 		}
-		delete(s.dirty, scope)
 	}
 	return nil
 }
@@ -281,13 +326,15 @@ func (s *YAMLStore) flush() error {
 func (s *YAMLStore) Score(id string, delta float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for scope, f := range s.data {
-		for idx, entry := range f.Entries {
-			if entry.ID == id {
-				f.Entries[idx].Score = math.Max(0, entry.Score+delta)
-				f.Entries[idx].HitCount++
-				f.Entries[idx].LastHit = time.Now()
-				return s.persist(scope)
+	for scope, files := range s.data {
+		for category, f := range files {
+			for idx, entry := range f.Entries {
+				if entry.ID == id {
+					f.Entries[idx].Score = math.Max(0, entry.Score+delta)
+					f.Entries[idx].HitCount++
+					f.Entries[idx].LastHit = time.Now()
+					return s.persist(scope, category)
+				}
 			}
 		}
 	}
@@ -297,62 +344,87 @@ func (s *YAMLStore) Score(id string, delta float64) error {
 func (s *YAMLStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for scope, f := range s.data {
-		for i, e := range f.Entries {
-			if e.ID == id {
-				f.Entries = append(f.Entries[:i], f.Entries[i+1:]...)
-				return s.persist(scope)
+	for scope, files := range s.data {
+		for category, f := range files {
+			for i, e := range f.Entries {
+				if e.ID == id {
+					f.Entries = append(f.Entries[:i], f.Entries[i+1:]...)
+					return s.persist(scope, category)
+				}
 			}
 		}
 	}
 	return fmt.Errorf("entry %q not found", id)
 }
 
-// load reads or inits a file for a scope.
-func (s *YAMLStore) load(scope store.Scope, path string) error {
-	path = expandHome(path)
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		s.data[scope] = new(file{Version: 1})
-		return s.persist(scope)
+// loadScope scans dir for *.yaml files and loads each as a separate category.
+func (s *YAMLStore) loadScope(scope store.Scope, dir string) error {
+	dir = expandHome(dir)
+	s.data[scope] = make(map[string]*file)
+	s.dirty[scope] = make(map[string]bool)
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
 	}
-	b, err := os.ReadFile(path)
+
+	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
-	var f file
-	if err := yaml.Unmarshal(b, &f); err != nil {
-		return err
+	for _, dirEntry := range dirEntries {
+		if dirEntry.IsDir() || !strings.HasSuffix(dirEntry.Name(), ".yaml") {
+			continue
+		}
+		category := strings.TrimSuffix(dirEntry.Name(), ".yaml")
+		f, err := readCategoryFile(filepath.Join(dir, dirEntry.Name()))
+		if err != nil {
+			return fmt.Errorf("loading category %q: %w", category, err)
+		}
+		s.data[scope][category] = f
 	}
-	s.data[scope] = &f
 	return nil
 }
 
-func (s *YAMLStore) persist(scope store.Scope) error {
-	path := expandHome(s.files[scope])
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+func readCategoryFile(path string) (*file, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var f file
+	if err := yaml.Unmarshal(b, &f); err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+func (s *YAMLStore) persist(scope store.Scope, category string) error {
+	dir := expandHome(s.dirs[scope])
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	b, err := yaml.Marshal(s.data[scope])
+	b, err := yaml.Marshal(s.data[scope][category])
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	return os.WriteFile(filepath.Join(dir, category+".yaml"), b, 0o644)
 }
 
 // scopesForQuery resolves which scopes to query.
 func (s *YAMLStore) scopesForQuery(requested []store.Scope) []store.Scope {
 	if len(requested) == 0 {
-		return slices.Collect(maps.Keys(s.files))
+		return slices.Collect(maps.Keys(s.dirs))
 	}
 	return requested
 }
 
-// allEntries returns entries from requested scopes (caller must hold read lock).
+// allEntries returns all entries from all category files in the requested scopes (caller must hold lock).
 func (s *YAMLStore) allEntries(scopes []store.Scope) []store.Entry {
 	var out []store.Entry
 	for _, sc := range scopes {
-		if f, ok := s.data[sc]; ok && f != nil && len(f.Entries) > 0 {
-			out = append(out, f.Entries...)
+		for _, f := range s.data[sc] {
+			if f != nil {
+				out = append(out, f.Entries...)
+			}
 		}
 	}
 	return out

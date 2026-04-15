@@ -31,8 +31,8 @@ func (c *ServerCmd) Run(logger *log.Logger, conf config.Config) error {
 	}
 
 	ys, err := yamlstore.New(map[store.Scope]string{
-		store.ScopeGlobal: filepath.Join(c.GlobalDir, "global.yaml"),
-		"project":         filepath.Join(c.LocalDir, "project.yaml"),
+		store.ScopeGlobal: filepath.Join(c.GlobalDir, "global"),
+		"project":         filepath.Join(c.LocalDir, "project"),
 	})
 
 	if err != nil {
