@@ -12,3 +12,17 @@ entries:
       last_hit: 2026-04-13T09:06:53.580046-04:00
       created: 2026-04-13T09:05:45.233033-04:00
       source: agent:2026-04-13
+    - id: c682f055ba165f13
+      content: Git diffs should always assume a custom pager, escaping via `GIT_PAGER= git diff`.
+      tags:
+        - git
+        - diff
+        - pager
+        - shell
+      category: workflow
+      scope: project
+      score: 1
+      hit_count: 1
+      last_hit: 2026-04-13T22:53:13.837071-04:00
+      created: 2026-04-13T22:47:56.914883-04:00
+      source: agent:2026-04-13

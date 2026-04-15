@@ -18,9 +18,10 @@ var (
 )
 
 var CLI struct {
-	// Default command does not yet do any daemon stuff. I copied this from jimschubert/hi, and plan to implement the daemon logic later.
-	Default ServerCmd        `hidden:"" cmd:"" default:"withargs" help:"Ensures the daemon is running, starting if it's not (default)"`
-	Server  ServerCmd        `cmd:"" help:"Start the mnemonic server"`
+	Default StdioCmd         `hidden:"" cmd:"" default:"withargs" help:"Serve MCP over stdio, starting the daemon if needed (default)"`
+	Stdio   StdioCmd         `cmd:"" help:"Serve MCP over stdio, starting the daemon if needed"`
+	Server  ServerCmd        `cmd:"" help:"Start the MCP HTTP server, starting the daemon if needed"`
+	Stop    StopCmd          `cmd:"" help:"Send a graceful shutdown request to a running daemon"`
 	Version kong.VersionFlag `short:"v" help:"Print version information"`
 }
 

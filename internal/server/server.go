@@ -19,8 +19,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-var serverVersion = "0.1.0"
-
 type Server struct {
 	mcpServer *mcp.Server
 	store     store.Store
@@ -30,12 +28,17 @@ type Server struct {
 	server    *http.Server
 }
 
+// McpServer returns the underlying MCP server, e.g. for embedding in teh daemon.
+func (s *Server) McpServer() *mcp.Server {
+	return s.mcpServer
+}
+
 // NewServer injects dependencies and registers the tools.
 func NewServer(store store.Store, conf config.Config) *Server {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	mcpSrv := mcp.NewServer(&mcp.Implementation{
 		Name:    "mnemonic",
-		Version: serverVersion,
+		Version: config.Version,
 	}, &mcp.ServerOptions{Logger: logger})
 
 	s := &Server{
@@ -51,9 +54,6 @@ func NewServer(store store.Store, conf config.Config) *Server {
 }
 
 func (s *Server) Serve(ctx context.Context) error {
-	ctx = config.StoreMcpAddress(ctx, s.conf.ServerAddr)
-	ctx = config.StoreServerVersion(ctx, serverVersion)
-
 	mux := http.NewServeMux()
 
 	s.server = &http.Server{Handler: mux}
@@ -69,7 +69,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		status := map[string]any{
 			"status":    "healthy",
 			"timestamp": time.Now().Unix(),
-			"version":   serverVersion,
+			"version":   config.Version,
 			"uptime":    time.Since(s.startedAt).String(),
 		}
 
@@ -115,6 +115,11 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 }
 
+// ServeStdio runs the MCP server over stdin/stdout.
+func (s *Server) ServeStdio(ctx context.Context) error {
+	return s.mcpServer.Run(ctx, &mcp.StdioTransport{})
+}
+
 // Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.server == nil {
@@ -125,7 +130,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		closer = c
 	}
 
-	s.logger.Info("Shutting down MCP server", "version", serverVersion)
+	s.logger.Info("Shutting down MCP server", "version", config.Version)
 	if closer != nil {
 		defer func() {
 			if err := closer.Close(); err != nil {
