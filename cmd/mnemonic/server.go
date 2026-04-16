@@ -16,6 +16,7 @@ import (
 type ServerCmd struct {
 	GlobalDir  string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
 	LocalDir   string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
+	Team       []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
 	Mandatory  []string `short:"m" help:"Additional mandatory categories beyond the defaults (avoidance, security)" env:"MNEMONIC_MANDATORY" sep:","`
 	ServerAddr string   `short:"a" default:"localhost:20001" help:"Address to listen on for MCP requests"  env:"MNEMONIC_SERVER_ADDR"`
 }
@@ -30,10 +31,16 @@ func (c *ServerCmd) Run(logger *log.Logger, conf config.Config) error {
 		conf.ServerAddr = c.ServerAddr
 	}
 
-	ys, err := yamlstore.New(map[store.Scope]string{
+	scopes := map[store.Scope]string{
 		store.ScopeGlobal: filepath.Join(c.GlobalDir, "global"),
 		"project":         filepath.Join(c.LocalDir, "project"),
-	})
+	}
+	for _, dir := range c.Team {
+		scope := store.Scope("team:" + filepath.Base(dir))
+		scopes[scope] = dir
+	}
+
+	ys, err := yamlstore.New(scopes)
 
 	if err != nil {
 		return fmt.Errorf("creating YAML store: %w", err)

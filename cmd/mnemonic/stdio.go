@@ -14,12 +14,13 @@ import (
 type StdioCmd struct {
 	GlobalDir  string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
 	LocalDir   string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
+	Team       []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
 	Mandatory  []string `short:"m" help:"Additional mandatory categories beyond the defaults (avoidance, security)" env:"MNEMONIC_MANDATORY" sep:","`
 	ServerAddr string   `short:"a" default:"localhost:20001" help:"Address to listen on for MCP requests" env:"MNEMONIC_SERVER_ADDR"`
 }
 
 func (c *StdioCmd) Run(logger *log.Logger, conf config.Config) error {
-	extraEnv := daemonEnv(c.GlobalDir, c.LocalDir, c.Mandatory, c.ServerAddr)
+	extraEnv := c.daemonEnv()
 
 	if err := ensureDaemon(logger, conf, extraEnv); err != nil {
 		return fmt.Errorf("ensuring daemon: %w", err)
@@ -36,16 +37,19 @@ func (c *StdioCmd) Run(logger *log.Logger, conf config.Config) error {
 }
 
 // daemonEnv builds config via environment variables for running the daemon.
-func daemonEnv(globalDir, localDir string, mandatory []string, serverAddr string) []string {
+func (c *StdioCmd) daemonEnv() []string {
 	env := []string{
-		"MNEMONIC_GLOBAL_DIR=" + globalDir,
-		"MNEMONIC_LOCAL_DIR=" + localDir,
+		"MNEMONIC_GLOBAL_DIR=" + c.GlobalDir,
+		"MNEMONIC_LOCAL_DIR=" + c.LocalDir,
 	}
-	if len(mandatory) > 0 {
-		env = append(env, "MNEMONIC_MANDATORY="+strings.Join(mandatory, ","))
+	if len(c.Team) > 0 {
+		env = append(env, "MNEMONIC_TEAM_DIRS="+strings.Join(c.Team, ","))
 	}
-	if serverAddr != "" {
-		env = append(env, "MNEMONIC_SERVER_ADDR="+serverAddr)
+	if len(c.Mandatory) > 0 {
+		env = append(env, "MNEMONIC_MANDATORY="+strings.Join(c.Mandatory, ","))
+	}
+	if c.ServerAddr != "" {
+		env = append(env, "MNEMONIC_SERVER_ADDR="+c.ServerAddr)
 	}
 	return env
 }

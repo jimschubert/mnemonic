@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/alecthomas/kong"
+	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/sethvargo/go-envconfig"
 )
@@ -32,6 +33,7 @@ func main() {
 	ctx := kong.Parse(&CLI,
 		kong.Name(projectName),
 		kong.Description("Attention-based MCP memory controller for LLM coding agents."),
+		kong.Configuration(kongyaml.Loader, "~/.mnemonic/config.yaml", ".mnemonic/config.yaml"),
 		kong.UsageOnError(),
 		kong.Vars{
 			"version": fmt.Sprintf("%s (%s)", version, commit),

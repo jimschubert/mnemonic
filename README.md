@@ -26,6 +26,48 @@ mnemonic --help
 
 ## Configuration
 
+### External config file
+
+Reusable configuration can be defined in YAML files. These files are structured as commands with their respective flags.
+Here is the order of precedence for configuration, from lowest to highest where higher values override lower values:
+
+1. Any default values defined on the target command flag
+2. `~/.mnemonic/config.yaml` — global/user config
+3. `.mnemonic/config.yaml` — project-local config (relative to where mnemonic is invoked)
+4. Environment variable
+5. CLI flag
+
+Example `.mnemonic/config.yaml`:
+
+```yaml
+server:
+  global-dir: ~/.mnemonic
+  local-dir: .mnemonic
+  team:
+    - /shared/team-data
+  server-addr: localhost:20001
+
+stdio:
+  global-dir: ~/.mnemonic
+  local-dir: .mnemonic
+  team:
+    - /shared/team-data
+```
+
+YAML keys must match the long flag names (see `--help`).
+
+### Team directories
+
+Pass one or more `--team` directories to load an additional shared scope per directory. 
+Each team directory is registered as scope `team:<basename>`, so `/shared/acme` becomes scope `team:acme` and can be referenced
+in your agent to access team-specific memory.
+
+```shell
+mnemonic server --team /shared/acme --team /shared/platform
+```
+
+### MCP server
+
 Example MCP configuration (JetBrains IDEs):
 
 ```json
