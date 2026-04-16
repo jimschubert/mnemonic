@@ -9,13 +9,12 @@ import (
 
 // StopCmd sends a graceful shutdown event to a running daemon.
 type StopCmd struct {
-	ServerAddr string `short:"a" help:"Target TCP address instead of the Unix socket" env:"MNEMONIC_SERVER_ADDR"`
+	ServerAddr string `short:"a" help:"TCP address for shutdown" env:"MNEMONIC_SERVER_ADDR"`
 }
 
 func (c *StopCmd) Run(logger *log.Logger, conf config.Config) error {
-	if err := daemon.RequestStop(conf, c.ServerAddr); err != nil {
-		return err
+	if c.ServerAddr != "" {
+		conf.ServerAddr = c.ServerAddr
 	}
-	logger.Println("shutdown request sent")
-	return nil
+	return daemon.RequestStop(conf, logger)
 }
