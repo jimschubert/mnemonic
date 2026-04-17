@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/jimschubert/mnemonic/internal/config"
-	"github.com/sethvargo/go-envconfig"
 )
 
 var (
@@ -29,31 +29,28 @@ var CLI struct {
 func main() {
 	logger := log.New(os.Stdout, "["+projectName+"] ", 0)
 
-	conf := processConfig()
+	conf, err := config.Load("~/.mnemonic/config.yaml", ".mnemonic/config.yaml")
+	if err != nil {
+		fmt.Printf("error loading config: %s\n", err)
+		os.Exit(1)
+	}
+
+	vars := kong.Vars{}
+	maps.Copy(vars, conf.AsMap())
+	vars["version"] = fmt.Sprintf("%s (%s)", version, commit)
+
 	ctx := kong.Parse(&CLI,
 		kong.Name(projectName),
 		kong.Description("Attention-based MCP memory controller for LLM coding agents."),
 		kong.Configuration(kongyaml.Loader, "~/.mnemonic/config.yaml", ".mnemonic/config.yaml"),
 		kong.UsageOnError(),
-		kong.Vars{
-			"version": fmt.Sprintf("%s (%s)", version, commit),
-		},
 		kong.Bind(
 			logger,
 			conf,
 		),
+		vars,
 	)
 
-	err := ctx.Run(context.Background())
+	err = ctx.Run(context.Background())
 	ctx.FatalIfErrorf(err)
-}
-
-func processConfig() config.Config {
-	c := config.Config{}
-	err := envconfig.Process(context.Background(), &c)
-	if err != nil {
-		fmt.Printf("error processing config: %s\n", err)
-		os.Exit(1)
-	}
-	return c
 }

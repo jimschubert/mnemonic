@@ -26,35 +26,40 @@ mnemonic --help
 
 ## Configuration
 
-### External config file
+### Config file precedence
 
-Reusable configuration can be defined in YAML files. These files are structured as commands with their respective flags.
-Here is the order of precedence for configuration, from lowest to highest where higher values override lower values:
+Configuration is resolved in order of precedence (highest wins):
 
-1. Any default values defined on the target command flag
-2. `~/.mnemonic/config.yaml` — global/user config
+1. CLI flags (e.g., `--server-addr localhost:9999`)
+2. Environment variables (e.g., `MNEMONIC_SERVER_ADDR=localhost:9999`)
 3. `.mnemonic/config.yaml` — project-local config (relative to where mnemonic is invoked)
-4. Environment variable
-5. CLI flag
+4. `~/.mnemonic/config.yaml` — global/user config
+5. Struct defaults defined in code
 
-Example `.mnemonic/config.yaml`:
+### Example config file
+
+Global config (`~/.mnemonic/config.yaml`):
 
 ```yaml
-server:
-  global-dir: ~/.mnemonic
-  local-dir: .mnemonic
-  team:
-    - /shared/team-data
-  server-addr: localhost:20001
+log_level: info
+server_addr: localhost:20001
+socket_path: ~/.mnemonic/mnemonic.sock
+client_timeout_sec: 5
 
-stdio:
-  global-dir: ~/.mnemonic
-  local-dir: .mnemonic
-  team:
-    - /shared/team-data
+# optional scoped logging levels
+logging:
+  store: debug
+  server: warn
 ```
 
-YAML keys must match the long flag names (see `--help`).
+Project config (`.mnemonic/config.yaml`):
+
+```yaml
+log_level: debug
+server_addr: localhost:9999
+```
+
+For available config options, see [Config struct](./internal/config/config.go).
 
 ### Team directories
 
@@ -62,8 +67,10 @@ Pass one or more `--team` directories to load an additional shared scope per dir
 Each team directory is registered as scope `team:<basename>`, so `/shared/acme` becomes scope `team:acme` and can be referenced
 in your agent to access team-specific memory.
 
+For example:
+
 ```shell
-mnemonic server --team /shared/acme --team /shared/platform
+mnemonic server --team /shared/acme --team /shared/platform --server-addr localhost:9999
 ```
 
 ### MCP server

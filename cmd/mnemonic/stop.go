@@ -13,8 +13,8 @@ type StopCmd struct {
 }
 
 func (c *StopCmd) Run(logger *log.Logger, conf config.Config) error {
-	if c.ServerAddr != "" {
-		conf.ServerAddr = c.ServerAddr
-	}
+	conf.ApplyOverrides(config.Config{
+		ServerAddr: c.ServerAddr,
+	})
 	return daemon.RequestStop(conf, logger)
 }

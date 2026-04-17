@@ -16,10 +16,14 @@ type StdioCmd struct {
 	LocalDir   string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
 	Team       []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
 	Mandatory  []string `short:"m" help:"Additional mandatory categories beyond the defaults (avoidance, security)" env:"MNEMONIC_MANDATORY" sep:","`
-	ServerAddr string   `short:"a" default:"localhost:20001" help:"Address to listen on for MCP requests" env:"MNEMONIC_SERVER_ADDR"`
+	ServerAddr string   `short:"a" default:"${server_addr}" help:"Address to listen on for MCP requests" env:"MNEMONIC_SERVER_ADDR"`
 }
 
 func (c *StdioCmd) Run(logger *log.Logger, conf config.Config) error {
+	conf.ApplyOverrides(config.Config{
+		ServerAddr: c.ServerAddr,
+	})
+
 	extraEnv := c.daemonEnv()
 
 	if err := ensureDaemon(logger, conf, extraEnv); err != nil {
