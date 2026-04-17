@@ -7,7 +7,7 @@ import (
 	"github.com/jimschubert/mnemonic/internal/daemon"
 )
 
-// StopCmd sends a graceful shutdown event to a running daemon.
+// StopCmd sends a shutdown event to a running daemon.
 type StopCmd struct {
 	ServerAddr string `short:"a" help:"TCP address for shutdown" env:"MNEMONIC_SERVER_ADDR"`
 }

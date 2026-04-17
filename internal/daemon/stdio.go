@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -52,6 +54,35 @@ func RunStdioServer(ctx context.Context, conf config.Config) error {
 			})
 		})
 	}
+
+	// this sets up a 10s polling loop to see if the daemon died, so the stdio server doesn't remain open indefinitely.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		interval := 10 * time.Second
+		if i, err := time.ParseDuration(os.Getenv("MNEMONIC_POLL_INTERVAL")); err == nil {
+			interval = i
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				resp, err := httpClient.Get("http://unix/api/status")
+				if err != nil {
+					cancel()
+					return
+				}
+				_ = resp.Body.Close()
+				if resp.StatusCode != 200 {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 
 	return proxySrv.Run(ctx, &mcp.StdioTransport{})
 }

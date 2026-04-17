@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/daemon"
@@ -31,7 +34,10 @@ func (c *StdioCmd) Run(logger *log.Logger, conf config.Config) error {
 	}
 
 	logger.Println("starting stdio bridge")
-	if err := daemon.RunStdioServer(context.Background(), conf); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := daemon.RunStdioServer(ctx, conf); err != nil {
 		logger.Printf("stdio bridge exited with error: %v", err)
 		return err
 	}

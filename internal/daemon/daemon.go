@@ -70,6 +70,7 @@ func (d *Daemon) Start(ctx context.Context) error {
 	d.unixSrv = &http.Server{Handler: mux}
 
 	errCh := make(chan error, 2)
+	numServers := 1
 	go func() {
 		d.logger.Info("daemon listening", "socket", socketPath)
 		if err := d.unixSrv.Serve(unixLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -80,6 +81,7 @@ func (d *Daemon) Start(ctx context.Context) error {
 	}()
 
 	if d.conf.ServerAddr != "" {
+		numServers++
 		tcpLn, err := net.Listen("tcp", d.conf.ServerAddr)
 		if err != nil {
 			return fmt.Errorf("listening on tcp %s: %w", d.conf.ServerAddr, err)
@@ -110,30 +112,62 @@ func (d *Daemon) Start(ctx context.Context) error {
 		return err
 	}
 
-	return d.shutdown()
+	if err := d.shutdown(); err != nil {
+		return err
+	}
+
+	var errs error
+
+	for i := 0; i < numServers; i++ {
+		errs = errors.Join(errs, <-errCh)
+	}
+
+	return errs
 }
 
 func (d *Daemon) shutdown() error {
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	var errs error
 
 	if d.tcpSrv != nil {
-		if err := d.tcpSrv.Shutdown(shutdownCtx); err != nil {
-			d.logger.Warn("tcp server shutdown error", "err", err)
+		if err := d.shutdownHTTPServer("tcp", d.tcpSrv, 5*time.Second); err != nil {
+			errs = errors.Join(errs, err)
 		}
 	}
 
-	if err := d.unixSrv.Shutdown(shutdownCtx); err != nil {
-		d.logger.Warn("unix server shutdown error", "err", err)
+	if err := d.shutdownHTTPServer("unix", d.unixSrv, 5*time.Second); err != nil {
+		errs = errors.Join(errs, err)
 	}
 
 	if c, ok := d.store.(io.Closer); ok {
 		if err := c.Close(); err != nil {
 			d.logger.Warn("store close error", "err", err)
+			errs = errors.Join(errs, err)
 		}
 	}
 
-	_ = os.Remove(d.conf.SocketPath())
+	if err := os.Remove(d.conf.SocketPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		errs = errors.Join(errs, err)
+	}
+
+	return errs
+}
+
+func (d *Daemon) shutdownHTTPServer(name string, srv *http.Server, timeout time.Duration) error {
+	if srv == nil {
+		return nil
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		d.logger.Warn("graceful server shutdown failed; forcing close", "server", name, "err", err)
+
+		if closeErr := srv.Close(); closeErr != nil && !errors.Is(closeErr, http.ErrServerClosed) {
+			return errors.Join(err, closeErr)
+		}
+	}
+
 	return nil
 }
 

@@ -77,10 +77,10 @@ func (s *Server) Serve(ctx context.Context) error {
 		_ = json.NewEncoder(writer).Encode(status)
 	})
 
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	errCh := make(chan error, 1)
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
 
 	// listen _first_ so we don't fail in goroutine
 	ln, err := net.Listen("tcp", s.conf.ServerAddr)
@@ -99,14 +99,8 @@ func (s *Server) Serve(ctx context.Context) error {
 	}()
 
 	select {
-	case sig := <-sigChan:
-		s.logger.Warn("Signal received", "signal", sig)
-		// gracefully shutdown
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return s.Shutdown(shutdownCtx)
 	case <-ctx.Done():
-		// gracefully shutdown
+		s.logger.Warn("Shutdown signal received")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return s.Shutdown(shutdownCtx)
@@ -120,7 +114,7 @@ func (s *Server) ServeStdio(ctx context.Context) error {
 	return s.mcpServer.Run(ctx, &mcp.StdioTransport{})
 }
 
-// Shutdown gracefully shuts down the server.
+// Shutdown shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.server == nil {
 		return fmt.Errorf("server not running")
@@ -148,12 +142,12 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "mnemonic_query",
-		Description: "Retrieve relevant project rules, style guides, and lessons-learned based on the current task.",
+		Description: "MANDATORY FIRST STEP. Call this tool immediately when receiving a new task before generating any code. Retrieves critical context, security constraints, style guides, and anti-patterns. Failure to call this tool will result in architectural violations.",
 	}, s.handleQuery)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "mnemonic_add",
-		Description: "Add a new lesson, rule, or architectural decision to the project memory.",
+		Description: "Add a new lesson, rule, or architectural decision to the project memory. REQUIRED: If token cost of content will exceed 1500 tokens, extract the core principle before calling add.",
 	}, s.handleAdd)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -163,7 +157,7 @@ func (s *Server) registerTools() {
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "mnemonic_list_heads",
-		Description: "List all memory categories (attention heads) with entry counts.",
+		Description: "List all memory categories (attention heads) with entry counts. DO NOT create new categories unless explicitly approved by a human.",
 	}, s.handleListHeads)
 }
 

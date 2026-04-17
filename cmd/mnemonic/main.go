@@ -22,7 +22,7 @@ var CLI struct {
 	Default StdioCmd         `hidden:"" cmd:"" default:"withargs" help:"Serve MCP over stdio, starting the daemon if needed (default)"`
 	Stdio   StdioCmd         `cmd:"" help:"Serve MCP over stdio, starting the daemon if needed"`
 	Server  ServerCmd        `cmd:"" help:"Start the MCP HTTP server, starting the daemon if needed"`
-	Stop    StopCmd          `cmd:"" help:"Send a graceful shutdown request to a running daemon"`
+	Stop    StopCmd          `cmd:"" help:"Send a shutdown request to a running daemon"`
 	Version kong.VersionFlag `short:"v" help:"Print version information"`
 }
 

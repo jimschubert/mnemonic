@@ -46,6 +46,25 @@ func sendShutdown(conf config.Config, tcpAddr string) error {
 	return nil
 }
 
+func waitForStop(conf config.Config, timeout time.Duration) (bool, bool) {
+	deadline := time.Now().Add(timeout)
+
+	for {
+		socketRunning := IsRunning(conf)
+		tcpRunning := isTCPRunning(conf)
+
+		if !socketRunning && !tcpRunning {
+			return false, false
+		}
+
+		if time.Now().After(deadline) {
+			return socketRunning, tcpRunning
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // isTCPRunning reports whether something is accepting TCP connections on conf.ServerAddr.
 func isTCPRunning(conf config.Config) bool {
 	if conf.ServerAddr == "" {
@@ -59,7 +78,7 @@ func isTCPRunning(conf config.Config) bool {
 	return true
 }
 
-// RequestStop attempts a graceful shutdown via Unix socket then TCP, and verifies each transport
+// RequestStop attempts a shutdown via Unix socket then TCP, and verifies each transport
 // is no longer reachable afterwards.
 func RequestStop(conf config.Config, logger *log.Logger) error {
 	socketSent := false
@@ -89,10 +108,10 @@ func RequestStop(conf config.Config, logger *log.Logger) error {
 		return fmt.Errorf("daemon does not appear to be running (socket: %s, addr: %s)", conf.SocketPath(), conf.ServerAddr)
 	}
 
-	time.Sleep(300 * time.Millisecond)
+	socketRunning, tcpRunning := waitForStop(conf, time.Duration(conf.ClientTimeout())*time.Second)
 
 	// check socket has stopped
-	if IsRunning(conf) {
+	if socketRunning {
 		logger.Printf("warning: socket still reachable (%s)", conf.SocketPath())
 	} else {
 		logger.Printf("socket: stopped")
@@ -100,7 +119,7 @@ func RequestStop(conf config.Config, logger *log.Logger) error {
 
 	// check tcp has stopped, if applicable
 	if conf.ServerAddr != "" {
-		if isTCPRunning(conf) {
+		if tcpRunning {
 			logger.Printf("warning: TCP still reachable (%s)", conf.ServerAddr)
 		} else {
 			logger.Printf("TCP: stopped (%s)", conf.ServerAddr)
