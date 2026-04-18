@@ -1,0 +1,9 @@
+log_level: debug
+server_addr: localhost:8080
+embeddings:
+  endpoint: http://localhost:8000/v1/embeddings
+  model: all-MiniLM-L6-v2
+index:
+  dimensions: 384
+  ef_search: 100
+

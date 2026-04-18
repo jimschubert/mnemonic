@@ -15,6 +15,24 @@ import (
 
 var Version = "0.1.0"
 
+// Index holds configuration for the HNSW index parameters (expects simplified interface of github.com/coder/hnsw).
+type Index struct {
+	Dimensions  int     `yaml:"dimensions" env:"DIMENSIONS,default=768"`
+	Connections int     `yaml:"connections" env:"CONNECTIONS,default=16"`
+	LevelFactor float64 `yaml:"level_factor" env:"LEVEL_FACTOR,default=0.25"`
+	EfSearch    int     `yaml:"ef_search" env:"EF_SEARCH,default=50"`
+}
+
+// Embeddings holds configuration for the embedding endpoint and model. Defaults are LM Studio specifics.
+type Embeddings struct {
+	Endpoint  string `yaml:"endpoint" env:"ENDPOINT,default=http://127.0.0.1:1234/v1/embeddings"`
+	Model     string `yaml:"model" env:"MODEL,default=nomic-ai/nomic-embed-text-v1.5"`
+	AuthToken string `yaml:"auth_token" env:"AUTH_TOKEN"`
+	// SkipPreflight is a boolean flag to skip the preflight check before building the index.
+	// This is useful for testing or if the user is confident that the embedding endpoint is working correctly.
+	SkipPreflight bool `yaml:"skip_preflight" env:"SKIP_PREFLIGHT"`
+}
+
 type Config struct {
 	LogLevel string `yaml:"log_level" env:"LOG_LEVEL,default=warn"`
 	// Logging allows for scoped logging, e.g. server=warn; scopes will be 1:1 with packages, e.g. server, store, etc.
@@ -22,6 +40,8 @@ type Config struct {
 	ClientTimeoutSec int               `yaml:"client_timeout_sec" env:"MNEMONIC_CLIENT_TIMEOUT_SEC,default=5"`
 	ServerAddr       string            `yaml:"server_addr" env:"MNEMONIC_SERVER_ADDR,default=localhost:20001"`
 	SocketPathRaw    string            `yaml:"socket_path" env:"MNEMONIC_SOCKET_PATH,default=~/.mnemonic/mnemonic.sock"`
+	Embeddings       Embeddings        `yaml:"embeddings" env:", prefix=MNEMONIC_EMBEDDINGS_"`
+	Index            Index             `yaml:"index" env:", prefix=MNEMONIC_INDEX_"`
 }
 
 func (c *Config) ClientTimeout() int {
@@ -83,15 +103,22 @@ func Load(paths ...string) (Config, error) {
 }
 
 func (c *Config) AsMap() map[string]string {
+	// note: put everything with relevant zero values in the map initializer.
 	m := map[string]string{
-		"log_level":          c.LogLevel,
-		"client_timeout_sec": strconv.Itoa(c.ClientTimeoutSec),
-		"server_addr":        c.ServerAddr,
-		"socket_path":        c.SocketPathRaw,
+		"log_level":                 c.LogLevel,
+		"client_timeout_sec":        strconv.Itoa(c.ClientTimeoutSec),
+		"server_addr":               c.ServerAddr,
+		"socket_path":               c.SocketPathRaw,
+		"embeddings_skip_preflight": strconv.FormatBool(c.Embeddings.SkipPreflight),
 	}
-	if len(c.Logging) > 0 {
-		m["logging"] = c.logString()
-	}
+	putIfNotZero(m, "logging", c.logString())
+	putIfNotZero(m, "embeddings_endpoint", c.Embeddings.Endpoint)
+	putIfNotZero(m, "embeddings_model", c.Embeddings.Model)
+	putIfNotZero(m, "embeddings_auth_token", c.Embeddings.AuthToken)
+	putIfNotZero(m, "index_dimensions", c.Index.Dimensions, strconv.Itoa)
+	putIfNotZero(m, "index_connections", c.Index.Connections, strconv.Itoa)
+	putIfNotZero(m, "index_level_factor", c.Index.LevelFactor, formatFloat64)
+	putIfNotZero(m, "index_ef_search", c.Index.EfSearch, strconv.Itoa)
 	return m
 }
 
@@ -108,23 +135,22 @@ func (c *Config) logString() string {
 }
 
 func (c *Config) toEnvMap() map[string]string {
-	m := map[string]string{}
-	if c.LogLevel != "" {
-		m["LOG_LEVEL"] = c.LogLevel
-	}
-	if c.ServerAddr != "" {
-		m["MNEMONIC_SERVER_ADDR"] = c.ServerAddr
-	}
-	if c.SocketPathRaw != "" {
-		m["MNEMONIC_SOCKET_PATH"] = c.SocketPathRaw
-	}
-	if c.ClientTimeoutSec != 0 {
-		m["MNEMONIC_CLIENT_TIMEOUT_SEC"] = strconv.Itoa(c.ClientTimeoutSec)
-	}
+	m := make(map[string]string)
+	putIfNotZero(m, "LOG_LEVEL", c.LogLevel)
+	putIfNotZero(m, "MNEMONIC_SERVER_ADDR", c.ServerAddr)
+	putIfNotZero(m, "MNEMONIC_SOCKET_PATH", c.SocketPathRaw)
+	putIfNotZero(m, "MNEMONIC_CLIENT_TIMEOUT_SEC", c.ClientTimeoutSec, strconv.Itoa)
+	putIfNotZero(m, "MNEMONIC_LOGGING", c.logString())
+	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_ENDPOINT", c.Embeddings.Endpoint)
+	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_MODEL", c.Embeddings.Model)
+	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_AUTH_TOKEN", c.Embeddings.AuthToken)
+	putIfNotZero(m, "MNEMONIC_INDEX_DIMENSIONS", c.Index.Dimensions, strconv.Itoa)
+	putIfNotZero(m, "MNEMONIC_INDEX_CONNECTIONS", c.Index.Connections, strconv.Itoa)
+	putIfNotZero(m, "MNEMONIC_INDEX_LEVEL_FACTOR", c.Index.LevelFactor, formatFloat64)
+	putIfNotZero(m, "MNEMONIC_INDEX_EF_SEARCH", c.Index.EfSearch, strconv.Itoa)
 
-	if len(c.Logging) > 0 {
-		m["MNEMONIC_LOGGING"] = c.logString()
-	}
+	// keep zero value, always
+	m["MNEMONIC_EMBEDDINGS_SKIP_PREFLIGHT"] = strconv.FormatBool(c.Embeddings.SkipPreflight)
 	return m
 }
 
@@ -148,5 +174,52 @@ func (c *Config) ApplyOverrides(overrides Config) {
 			c.Logging = make(map[string]string)
 		}
 		maps.Copy(c.Logging, overrides.Logging)
+	}
+
+	if overrides.Embeddings.Endpoint != "" {
+		c.Embeddings.Endpoint = overrides.Embeddings.Endpoint
+	}
+	if overrides.Embeddings.Model != "" {
+		c.Embeddings.Model = overrides.Embeddings.Model
+	}
+	if overrides.Embeddings.AuthToken != "" {
+		c.Embeddings.AuthToken = overrides.Embeddings.AuthToken
+	}
+	if overrides.Embeddings.SkipPreflight {
+		c.Embeddings.SkipPreflight = overrides.Embeddings.SkipPreflight
+	}
+
+	if overrides.Index.Dimensions != 0 {
+		c.Index.Dimensions = overrides.Index.Dimensions
+	}
+	if overrides.Index.Connections != 0 {
+		c.Index.Connections = overrides.Index.Connections
+	}
+	if overrides.Index.LevelFactor != 0 {
+		c.Index.LevelFactor = overrides.Index.LevelFactor
+	}
+	if overrides.Index.EfSearch != 0 {
+		c.Index.EfSearch = overrides.Index.EfSearch
+	}
+}
+
+// formatFloat64 formats a float64 to string without trailing zeros.
+func formatFloat64(f float64) string {
+	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+// putIfNotZero adds value to map if it's not the zero value.
+// For non-string types, pass an optional stringify conversion function.
+func putIfNotZero[T comparable](m map[string]string, key string, value T, stringify ...func(T) string) {
+	var zero T
+	if value != zero {
+		if len(stringify) > 0 {
+			m[key] = stringify[0](value)
+		} else {
+			var s any = value
+			if str, ok := s.(string); ok {
+				m[key] = str
+			}
+		}
 	}
 }

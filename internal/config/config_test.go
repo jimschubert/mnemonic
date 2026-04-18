@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/alecthomas/assert/v2"
@@ -189,9 +190,69 @@ func TestConfig_AsMapNoLogging(t *testing.T) {
 	}
 
 	m := c.AsMap()
-	assert.Equal(t, 4, len(m))
+	assert.Equal(t, 5, len(m))
 	_, ok := m["logging"]
 	assert.Equal(t, false, ok)
+}
+
+func TestConfig_AsMapWithEmbeddings(t *testing.T) {
+	t.Parallel()
+
+	c := Config{
+		LogLevel:   "debug",
+		ServerAddr: "localhost:20001",
+		Embeddings: Embeddings{
+			Endpoint:  "http://127.0.0.1:1234/v1/embeddings",
+			Model:     "nomic-ai/nomic-embed-text-v1.5",
+			AuthToken: "secret-token",
+		},
+	}
+
+	m := c.AsMap()
+	assert.Equal(t, "http://127.0.0.1:1234/v1/embeddings", m["embeddings_endpoint"])
+	assert.Equal(t, "nomic-ai/nomic-embed-text-v1.5", m["embeddings_model"])
+	assert.Equal(t, "secret-token", m["embeddings_auth_token"])
+}
+
+func TestConfig_AsMapWithIndexZeroValues(t *testing.T) {
+	t.Parallel()
+
+	c := Config{
+		LogLevel:   "debug",
+		ServerAddr: "localhost:20001",
+		Index:      Index{},
+	}
+
+	m := c.AsMap()
+	_, hasDimensions := m["index_dimensions"]
+	assert.Equal(t, false, hasDimensions)
+	_, hasConnections := m["index_connections"]
+	assert.Equal(t, false, hasConnections)
+	_, hasEfBuild := m["index_ef_build"]
+	assert.Equal(t, false, hasEfBuild)
+	_, hasEfSearch := m["index_ef_search"]
+	assert.Equal(t, false, hasEfSearch)
+}
+
+func TestConfig_AsMapWithIndex(t *testing.T) {
+	t.Parallel()
+
+	c := Config{
+		LogLevel:   "debug",
+		ServerAddr: "localhost:20001",
+		Index: Index{
+			Dimensions:  512,
+			Connections: 8,
+			LevelFactor: 100,
+			EfSearch:    25,
+		},
+	}
+
+	m := c.AsMap()
+	assert.Equal(t, "512", m["index_dimensions"])
+	assert.Equal(t, "8", m["index_connections"])
+	assert.Equal(t, "100", m["index_level_factor"])
+	assert.Equal(t, "25", m["index_ef_search"])
 }
 
 func TestLoad_FileOnly(t *testing.T) {
@@ -285,6 +346,21 @@ logging:
 	assert.Equal(t, "info", cfg.LogLevelFor("unknown"))
 }
 
+func TestLoad_WithIndexAndEmbeddings(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load("testdata/config.yaml")
+	assert.NoError(t, err)
+	assert.Equal(t, "debug", cfg.LogLevel)
+	assert.Equal(t, "localhost:8080", cfg.ServerAddr)
+	assert.Equal(t, "http://localhost:8000/v1/embeddings", cfg.Embeddings.Endpoint)
+	assert.Equal(t, "all-MiniLM-L6-v2", cfg.Embeddings.Model)
+	assert.Equal(t, 384, cfg.Index.Dimensions)
+	assert.Equal(t, 100, cfg.Index.EfSearch)
+	assert.Equal(t, 16, cfg.Index.Connections)
+	assert.Equal(t, 0.25, cfg.Index.LevelFactor)
+}
+
 func TestConfig_ToEnvMap(t *testing.T) {
 	t.Parallel()
 
@@ -311,7 +387,62 @@ func TestConfig_ToEnvMapSkipsZeroValues(t *testing.T) {
 
 	c := Config{}
 	m := c.toEnvMap()
-	assert.Equal(t, 0, len(m))
+	assert.Equal(t, 1, len(m), "only skip preflight should be included by default")
+	assert.Equal(t, "false", m["MNEMONIC_EMBEDDINGS_SKIP_PREFLIGHT"], "skip preflight should be included with default value")
+}
+
+func TestConfig_ToEnvMapWithEmbeddings(t *testing.T) {
+	t.Parallel()
+
+	c := Config{
+		Embeddings: Embeddings{
+			Endpoint:  "http://localhost:1234/v1/embeddings",
+			Model:     "all-minilm-l6-v2",
+			AuthToken: "token123",
+		},
+	}
+
+	m := c.toEnvMap()
+	assert.Equal(t, "http://localhost:1234/v1/embeddings", m["MNEMONIC_EMBEDDINGS_ENDPOINT"])
+	assert.Equal(t, "all-minilm-l6-v2", m["MNEMONIC_EMBEDDINGS_MODEL"])
+	assert.Equal(t, "token123", m["MNEMONIC_EMBEDDINGS_AUTH_TOKEN"])
+}
+
+func TestConfig_ToEnvMapWithIndex(t *testing.T) {
+	t.Parallel()
+
+	c := Config{
+		Index: Index{
+			Dimensions:  384,
+			Connections: 12,
+			LevelFactor: 0.3,
+			EfSearch:    40,
+		},
+	}
+
+	m := c.toEnvMap()
+	assert.Equal(t, "384", m["MNEMONIC_INDEX_DIMENSIONS"])
+	assert.Equal(t, "12", m["MNEMONIC_INDEX_CONNECTIONS"])
+	assert.Equal(t, "0.3", m["MNEMONIC_INDEX_LEVEL_FACTOR"])
+	assert.Equal(t, "40", m["MNEMONIC_INDEX_EF_SEARCH"])
+}
+
+func TestConfig_ToEnvMapSkipsZeroIndexValues(t *testing.T) {
+	t.Parallel()
+
+	c := Config{
+		Index: Index{}, // all zero values
+	}
+
+	m := c.toEnvMap()
+	_, hasDimensions := m["MNEMONIC_INDEX_DIMENSIONS"]
+	assert.Equal(t, false, hasDimensions)
+	_, hasConnections := m["MNEMONIC_INDEX_CONNECTIONS"]
+	assert.Equal(t, false, hasConnections)
+	_, hasLevelFactor := m["MNEMONIC_INDEX_LEVEL_FACTOR"]
+	assert.Equal(t, false, hasLevelFactor)
+	_, hasEfSearch := m["MNEMONIC_INDEX_EF_SEARCH"]
+	assert.Equal(t, false, hasEfSearch)
 }
 
 func TestConfig_ApplyOverrides(t *testing.T) {
@@ -408,6 +539,100 @@ func TestConfig_ApplyOverrides(t *testing.T) {
 			assert.Equal(t, tt.expected.SocketPathRaw, tt.base.SocketPathRaw)
 			assert.Equal(t, tt.expected.ClientTimeoutSec, tt.base.ClientTimeoutSec)
 			assert.Equal(t, tt.expected.Logging, tt.base.Logging)
+		})
+	}
+}
+
+func TestPutIfNotZero_WithString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		value    string
+		key      string
+		expected string
+		present  bool
+	}{
+		{
+			name:     "empty string not added",
+			value:    "",
+			key:      "key",
+			expected: "",
+			present:  false,
+		},
+		{
+			name:     "non-empty string added",
+			value:    "hello",
+			key:      "key",
+			expected: "hello",
+			present:  true,
+		},
+		{
+			name:     "whitespace string added",
+			value:    "  ",
+			key:      "key",
+			expected: "  ",
+			present:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := make(map[string]string)
+			putIfNotZero(m, tt.key, tt.value)
+			val, ok := m[tt.key]
+			assert.Equal(t, tt.present, ok)
+			if tt.present {
+				assert.Equal(t, tt.expected, val)
+			}
+		})
+	}
+}
+
+func TestPutIfNotZero_WithInt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		value    int
+		key      string
+		expected string
+		present  bool
+	}{
+		{
+			name:     "zero not added",
+			value:    0,
+			key:      "key",
+			expected: "",
+			present:  false,
+		},
+		{
+			name:     "positive int added",
+			value:    42,
+			key:      "key",
+			expected: "42",
+			present:  true,
+		},
+		{
+			name:     "negative int added",
+			value:    -5,
+			key:      "key",
+			expected: "-5",
+			present:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := make(map[string]string)
+			putIfNotZero(m, tt.key, tt.value, strconv.Itoa)
+			val, ok := m[tt.key]
+			assert.Equal(t, tt.present, ok)
+			if tt.present {
+				assert.Equal(t, tt.expected, val)
+			}
 		})
 	}
 }
