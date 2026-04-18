@@ -1,3 +1,6 @@
+# Ignore memory files by default, requiring git add -f to add them to the repository.
+.mnemonic/project/
+
 /dist/
 .github/CHANGELOG.md
 .github/copilot-instructions.md
