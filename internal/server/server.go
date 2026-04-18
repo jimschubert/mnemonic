@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jimschubert/mnemonic/internal/config"
+	"github.com/jimschubert/mnemonic/internal/controller"
 	"github.com/jimschubert/mnemonic/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -174,17 +175,34 @@ func (s *Server) handleQuery(_ context.Context, _ *mcp.CallToolRequest, input Qu
 
 	var entries []store.Entry
 	var err error
-	if input.Category != "" {
-		entries, err = s.store.QueryByCategory(input.Category, input.Query, topK, scopes)
-	} else {
-		entries, err = s.store.All(scopes)
-		if err == nil && len(entries) > topK {
-			entries = entries[:topK]
+
+	// try semantic search first when a query is provided
+	// this initial query is expected to be maximum 5-10 milliseconds via in-memory index.
+	if input.Query != "" {
+		if ss, ok := s.store.(controller.SemanticSearcher); ok {
+			entries, err = ss.SemanticSearch(input.Query, topK, scopes)
+			if err != nil {
+				s.logger.Warn("semantic search failed, falling back to keyword", "err", err)
+				entries = nil
+			}
 		}
 	}
-	if err != nil {
-		return nil, QueryOutput{}, err
+
+	// fall back to keyword search
+	if len(entries) == 0 {
+		if input.Category != "" {
+			entries, err = s.store.QueryByCategory(input.Category, input.Query, topK, scopes)
+		} else {
+			entries, err = s.store.All(scopes)
+			if err == nil && len(entries) > topK {
+				entries = entries[:topK]
+			}
+		}
+		if err != nil {
+			return nil, QueryOutput{}, err
+		}
 	}
+
 	results := make([]QueryResult, len(entries))
 	for i, e := range entries {
 		results[i] = QueryResult{

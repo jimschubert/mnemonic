@@ -25,6 +25,7 @@ type file struct {
 
 var _ store.Store = (*YAMLStore)(nil)
 
+// TODO: make flush configurable
 const flushInterval = 30 * time.Second
 
 // YAMLStore holds one or more scope directories, each containing one YAML file per category.

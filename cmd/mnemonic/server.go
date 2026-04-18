@@ -28,17 +28,8 @@ func (c *ServerCmd) Run(logger *log.Logger, conf config.Config) error {
 
 	store.WithAdditionalMandatoryCategories(c.Mandatory)
 
-	scopes := map[store.Scope]string{
-		store.ScopeGlobal: filepath.Join(c.GlobalDir, "global"),
-		"project":         filepath.Join(c.LocalDir, "project"),
-	}
-	for _, dir := range c.Team {
-		scope := store.Scope("team:" + filepath.Base(dir))
-		scopes[scope] = dir
-	}
-
+	scopes := createScopes(c.GlobalDir, c.LocalDir, c.Team)
 	ys, err := yamlstore.New(scopes)
-
 	if err != nil {
 		return fmt.Errorf("creating YAML store: %w", err)
 	}
@@ -46,4 +37,16 @@ func (c *ServerCmd) Run(logger *log.Logger, conf config.Config) error {
 	d := daemon.New(ys, conf)
 	logger.Printf("starting server (socket: %s, MCP: %s/mcp)", conf.SocketPath(), conf.ServerAddr)
 	return d.Start(context.Background())
+}
+
+func createScopes(globalDir string, localDir string, teams []string) map[store.Scope]string {
+	scopes := map[store.Scope]string{
+		store.ScopeGlobal: filepath.Join(globalDir, "global"),
+		"project":         filepath.Join(localDir, "project"),
+	}
+	for _, dir := range teams {
+		scope := store.Scope("team:" + filepath.Base(dir))
+		scopes[scope] = dir
+	}
+	return scopes
 }

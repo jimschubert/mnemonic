@@ -23,6 +23,7 @@ var CLI struct {
 	Stdio   StdioCmd         `cmd:"" help:"Serve MCP over stdio, starting the daemon if needed"`
 	Server  ServerCmd        `cmd:"" help:"Start the MCP HTTP server, starting the daemon if needed"`
 	Stop    StopCmd          `cmd:"" help:"Send a shutdown request to a running daemon"`
+	Embed   EmbedCmd         `cmd:"" help:"Fetch embeddings and build the HNSW index"`
 	Version kong.VersionFlag `short:"v" help:"Print version information"`
 }
 
