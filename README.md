@@ -18,11 +18,16 @@ Or, check the [releases page](https://github.com/jimschubert/mnemonic/releases) 
 
 ## Usage
 
-Quick start:
-
 ```shell
 mnemonic --help
 ```
+
+### Commands
+
+- `stdio` (default) — Serve MCP over stdio, automatically starting the server in the background if needed.
+- `server` — Start the MCP HTTP server, which also manages memory storage.
+- `embed` — Fetch embeddings and build the HNSW index for the active project.
+- `stop` — Send a shutdown request to the running background server.
 
 ## Configuration
 
@@ -50,6 +55,11 @@ client_timeout_sec: 5
 logging:
   store: debug
   server: warn
+
+# optional embeddings configuration
+embeddings:
+  endpoint: http://127.0.0.1:1234/v1/embeddings
+  model: nomic-ai/nomic-embed-text-v1.5
 ```
 
 Project config (`.mnemonic/config.yaml`):
@@ -75,18 +85,20 @@ mnemonic server --team /shared/acme --team /shared/platform --server-addr localh
 
 ### MCP server
 
-Example MCP configuration (JetBrains IDEs):
+Example MCP configuration (Claude Desktop, Cursor, Zed, JetBrains IDEs):
 
 ```json
 {
   "mcpServers": {
     "mnemonic": {
-      "type": "http",
-      "url": "http://localhost:20001/mcp"
+      "command": "mnemonic",
+      "args": ["stdio"]
     }
   }
 }
 ```
+
+If your client only supports HTTP transports, use `mnemonic server` and connect to `http://localhost:20001/mcp`.
 
 Example memory instructions:
 
