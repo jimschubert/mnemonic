@@ -17,7 +17,6 @@ import (
 
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/server"
-	"github.com/jimschubert/mnemonic/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -90,7 +89,8 @@ func (d *Daemon) Start(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("listening on tcp %s: %w", d.conf.ServerAddr, err)
 		}
-		d.tcpSrv = &http.Server{Handler: mux}
+		tcpHandler := server.TCPHandlerFromConfig(mux, d.conf.AuthToken, d.conf.AllowedOrigins, d.conf.UnauthenticatedStatus)
+		d.tcpSrv = &http.Server{Handler: tcpHandler}
 		go func() {
 			d.logger.Info("daemon HTTP listening", "addr", d.conf.ServerAddr, "path", "/mcp")
 			if err := d.tcpSrv.Serve(tcpLn); err != nil && !errors.Is(err, http.ErrServerClosed) {

@@ -190,7 +190,7 @@ func TestConfig_AsMapNoLogging(t *testing.T) {
 	}
 
 	m := c.AsMap()
-	assert.Equal(t, 5, len(m))
+	assert.Equal(t, 6, len(m))
 	_, ok := m["logging"]
 	assert.Equal(t, false, ok)
 }
@@ -387,8 +387,9 @@ func TestConfig_ToEnvMapSkipsZeroValues(t *testing.T) {
 
 	c := Config{}
 	m := c.toEnvMap()
-	assert.Equal(t, 1, len(m), "only skip preflight should be included by default")
+	assert.Equal(t, 2, len(m), "only always-emitted booleans should be included by default")
 	assert.Equal(t, "false", m["MNEMONIC_EMBEDDINGS_SKIP_PREFLIGHT"], "skip preflight should be included with default value")
+	assert.Equal(t, "false", m["MNEMONIC_UNAUTHENTICATED_STATUS"], "unauthenticated status should be included with default value")
 }
 
 func TestConfig_ToEnvMapWithEmbeddings(t *testing.T) {

@@ -16,19 +16,25 @@ import (
 
 // ServerCmd starts the MCP server in-process: serves the store over both a Unix socket and TCP HTTP.
 type ServerCmd struct {
-	GlobalDir  string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
-	LocalDir   string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
-	Team       []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
-	ServerAddr string   `short:"a" default:"${server_addr}" help:"Address to listen on for MCP requests"  env:"MNEMONIC_SERVER_ADDR"`
-	Mandatory  []string `help:"Additional mandatory categories beyond the defaults (avoidance, security)" env:"MNEMONIC_MANDATORY" sep:","`
+	GlobalDir             string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
+	LocalDir              string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
+	Team                  []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
+	ServerAddr            string   `short:"a" default:"${server_addr}" help:"Address to listen on for MCP requests"  env:"MNEMONIC_SERVER_ADDR"`
+	Mandatory             []string `help:"Additional mandatory categories beyond the defaults (avoidance, security)" env:"MNEMONIC_MANDATORY" sep:","`
+	AuthToken             string   `help:"Bearer token required for all TCP HTTP requests (empty = no auth)" env:"MNEMONIC_AUTH_TOKEN"`
+	AllowedOrigins        []string `help:"Allowed CORS origins; use * to permit any origin" env:"MNEMONIC_ALLOWED_ORIGINS" sep:","`
+	UnauthenticatedStatus bool     `help:"Allow unauthenticated access to GET /api/status" env:"MNEMONIC_UNAUTHENTICATED_STATUS"`
 
-	embeddable
+	Embedding embeddable `embed:"" prefix:"embedding-"`
 }
 
 func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
-	c.applyConfig(&conf)
+	c.Embedding.applyConfig(&conf)
 	conf.ApplyOverrides(config.Config{
-		ServerAddr: c.ServerAddr,
+		ServerAddr:            c.ServerAddr,
+		AuthToken:             c.AuthToken,
+		AllowedOrigins:        c.AllowedOrigins,
+		UnauthenticatedStatus: c.UnauthenticatedStatus,
 	})
 
 	store.WithAdditionalMandatoryCategories(c.Mandatory)

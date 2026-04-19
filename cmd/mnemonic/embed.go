@@ -5,6 +5,7 @@ import (
 
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/controller"
+	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 )
 
@@ -44,14 +45,14 @@ type EmbedCmd struct {
 
 	Force bool `help:"Overwrite existing index."`
 
-	embeddable
+	Embedding embeddable `embed:"" prefix:"embedding-"`
 }
 
 func (e *EmbedCmd) Run(logger *slog.Logger, conf config.Config) error {
-	e.applyConfig(&conf)
+	e.Embedding.applyConfig(&conf)
 
 	scopes := createScopes(e.GlobalDir, e.LocalDir, e.Team)
-	ys, err := yamlstore.New(scopes)
+	ys, err := yamlstore.New(scopes, logging.ForScope(conf, "store"))
 	if err != nil {
 		return err
 	}

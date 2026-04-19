@@ -36,12 +36,18 @@ type Embeddings struct {
 type Config struct {
 	LogLevel string `yaml:"log_level" env:"LOG_LEVEL,default=warn"`
 	// Logging allows for scoped logging, e.g. server=warn; scopes will be 1:1 with packages, e.g. server, store, etc.
-	Logging          map[string]string `yaml:"logging" env:"MNEMONIC_LOGGING,separator=="`
-	ClientTimeoutSec int               `yaml:"client_timeout_sec" env:"MNEMONIC_CLIENT_TIMEOUT_SEC,default=5"`
-	ServerAddr       string            `yaml:"server_addr" env:"MNEMONIC_SERVER_ADDR,default=localhost:20001"`
-	SocketPathRaw    string            `yaml:"socket_path" env:"MNEMONIC_SOCKET_PATH,default=~/.mnemonic/mnemonic.sock"`
-	Embeddings       Embeddings        `yaml:"embeddings" env:", prefix=MNEMONIC_EMBEDDINGS_"`
-	Index            Index             `yaml:"index" env:", prefix=MNEMONIC_INDEX_"`
+	Logging              map[string]string `yaml:"logging" env:"MNEMONIC_LOGGING,separator=="`
+	ClientTimeoutSec     int               `yaml:"client_timeout_sec" env:"MNEMONIC_CLIENT_TIMEOUT_SEC,default=5"`
+	ServerAddr           string            `yaml:"server_addr" env:"MNEMONIC_SERVER_ADDR,default=localhost:20001"`
+	SocketPathRaw        string            `yaml:"socket_path" env:"MNEMONIC_SOCKET_PATH,default=~/.mnemonic/mnemonic.sock"`
+	// AuthToken, if non-empty, requires all TCP HTTP requests to present "Authorization: Bearer <token>".
+	AuthToken string `yaml:"auth_token" env:"MNEMONIC_AUTH_TOKEN"`
+	// AllowedOrigins enables CORS for the listed origins. Use "*" to permit any origin.
+	AllowedOrigins []string `yaml:"allowed_origins" env:"MNEMONIC_ALLOWED_ORIGINS"`
+	// UnauthenticatedStatus exempts GET /api/status from bearer-token enforcement on TCP.
+	UnauthenticatedStatus bool       `yaml:"unauthenticated_status" env:"MNEMONIC_UNAUTHENTICATED_STATUS"`
+	Embeddings            Embeddings `yaml:"embeddings" env:", prefix=MNEMONIC_EMBEDDINGS_"`
+	Index                 Index      `yaml:"index" env:", prefix=MNEMONIC_INDEX_"`
 }
 
 func (c *Config) ClientTimeout() int {
@@ -110,8 +116,13 @@ func (c *Config) AsMap() map[string]string {
 		"server_addr":               c.ServerAddr,
 		"socket_path":               c.SocketPathRaw,
 		"embeddings_skip_preflight": strconv.FormatBool(c.Embeddings.SkipPreflight),
+		"unauthenticated_status":    strconv.FormatBool(c.UnauthenticatedStatus),
 	}
 	putIfNotZero(m, "logging", c.logString())
+	putIfNotZero(m, "auth_token", c.AuthToken)
+	if len(c.AllowedOrigins) > 0 {
+		m["allowed_origins"] = strings.Join(c.AllowedOrigins, ",")
+	}
 	putIfNotZero(m, "embeddings_endpoint", c.Embeddings.Endpoint)
 	putIfNotZero(m, "embeddings_model", c.Embeddings.Model)
 	putIfNotZero(m, "embeddings_auth_token", c.Embeddings.AuthToken)
@@ -141,6 +152,10 @@ func (c *Config) toEnvMap() map[string]string {
 	putIfNotZero(m, "MNEMONIC_SOCKET_PATH", c.SocketPathRaw)
 	putIfNotZero(m, "MNEMONIC_CLIENT_TIMEOUT_SEC", c.ClientTimeoutSec, strconv.Itoa)
 	putIfNotZero(m, "MNEMONIC_LOGGING", c.logString())
+	putIfNotZero(m, "MNEMONIC_AUTH_TOKEN", c.AuthToken)
+	if len(c.AllowedOrigins) > 0 {
+		m["MNEMONIC_ALLOWED_ORIGINS"] = strings.Join(c.AllowedOrigins, ",")
+	}
 	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_ENDPOINT", c.Embeddings.Endpoint)
 	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_MODEL", c.Embeddings.Model)
 	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_AUTH_TOKEN", c.Embeddings.AuthToken)
@@ -151,6 +166,7 @@ func (c *Config) toEnvMap() map[string]string {
 
 	// keep zero value, always
 	m["MNEMONIC_EMBEDDINGS_SKIP_PREFLIGHT"] = strconv.FormatBool(c.Embeddings.SkipPreflight)
+	m["MNEMONIC_UNAUTHENTICATED_STATUS"] = strconv.FormatBool(c.UnauthenticatedStatus)
 	return m
 }
 
@@ -174,6 +190,15 @@ func (c *Config) ApplyOverrides(overrides Config) {
 			c.Logging = make(map[string]string)
 		}
 		maps.Copy(c.Logging, overrides.Logging)
+	}
+	if overrides.AuthToken != "" {
+		c.AuthToken = overrides.AuthToken
+	}
+	if len(overrides.AllowedOrigins) > 0 {
+		c.AllowedOrigins = overrides.AllowedOrigins
+	}
+	if overrides.UnauthenticatedStatus {
+		c.UnauthenticatedStatus = overrides.UnauthenticatedStatus
 	}
 
 	if overrides.Embeddings.Endpoint != "" {
