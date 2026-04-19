@@ -100,13 +100,24 @@ func (e *HttpEmbedder) doRequest(text ...string) (*response, error) {
 		Model: e.config.Embeddings.Model,
 		Input: text,
 	}
+
 	body, err := json.Marshal(r)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := e.client.Post(e.config.Embeddings.Endpoint, "application/json", bytes.NewReader(body))
+
+	postRequest, err := http.NewRequest(http.MethodPost, e.config.Embeddings.Endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating embedding request: %w", err)
+	}
+	postRequest.Header.Set("Content-Type", "application/json")
+	if e.config.Embeddings.AuthToken != "" {
+		postRequest.Header.Set("Authorization", "Bearer "+e.config.Embeddings.AuthToken)
+	}
+
+	resp, err := e.client.Do(postRequest)
+	if err != nil {
+		return nil, fmt.Errorf("embedding request failed: %w", err)
 	}
 	defer resp.Body.Close() // nolint:errcheck
 

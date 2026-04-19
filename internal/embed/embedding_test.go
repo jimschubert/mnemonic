@@ -265,6 +265,7 @@ func TestHttpEmbedder_DoRequest(t *testing.T) {
 		name          string
 		texts         []string
 		model         string
+		authToken     string
 		serverHandler func(w http.ResponseWriter, r *http.Request)
 		wantErr       bool
 		errMsg        string
@@ -282,6 +283,7 @@ func TestHttpEmbedder_DoRequest(t *testing.T) {
 				_ = json.Unmarshal(body, &req) // nolint:errcheck
 				assert.Equal(t, "my-model", req.Model)
 				assert.Equal(t, []string{"hello", "world"}, req.Input)
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 				w.Header().Set("Content-Type", "application/json")
 				resp := response{
@@ -290,6 +292,34 @@ func TestHttpEmbedder_DoRequest(t *testing.T) {
 					}{
 						{Embedding: []float64{0.1}},
 						{Embedding: []float64{0.2}},
+					},
+				}
+				_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
+			},
+			wantErr: false,
+		},
+		{
+			name:      "request sets appropriate headers",
+			texts:     []string{"hi"},
+			model:     "my-model",
+			authToken: "test-token",
+			serverHandler: func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				defer r.Body.Close() // nolint:errcheck
+
+				var req request
+				_ = json.Unmarshal(body, &req) // nolint:errcheck
+				assert.Equal(t, "my-model", req.Model)
+				assert.Equal(t, []string{"hi"}, req.Input)
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+
+				w.Header().Set("Content-Type", "application/json")
+				resp := response{
+					Data: []struct {
+						Embedding []float64 `json:"embedding"`
+					}{
+						{Embedding: []float64{0.1}},
 					},
 				}
 				_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
@@ -313,6 +343,11 @@ func TestHttpEmbedder_DoRequest(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(tt.serverHandler))
 			defer server.Close()
 
+			var token string
+			if tt.authToken != "" {
+				token = tt.authToken
+			}
+
 			conf := config.Config{
 				ClientTimeoutSec: 5,
 				Embeddings: config.Embeddings{
@@ -322,7 +357,8 @@ func TestHttpEmbedder_DoRequest(t *testing.T) {
 						}
 						return "http://localhost:9999"
 					}(),
-					Model: tt.model,
+					Model:     tt.model,
+					AuthToken: token,
 				},
 			}
 
