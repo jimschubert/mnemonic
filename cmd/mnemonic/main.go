@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"maps"
 	"os"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/jimschubert/mnemonic/internal/config"
+	"github.com/jimschubert/mnemonic/internal/logging"
 )
 
 var (
@@ -28,7 +29,7 @@ var CLI struct {
 }
 
 func main() {
-	logger := log.New(os.Stdout, "["+projectName+"] ", 0)
+	logger := logging.New(slog.LevelInfo)
 
 	conf, err := config.Load("~/.mnemonic/config.yaml", ".mnemonic/config.yaml")
 	if err != nil {

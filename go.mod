@@ -10,6 +10,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/sethvargo/go-envconfig v1.3.0
 	go.yaml.in/yaml/v4 v4.0.0-rc.4
+	golang.org/x/term v0.42.0
 )
 
 require (
@@ -25,6 +26,6 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

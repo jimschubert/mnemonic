@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -22,7 +22,7 @@ type StdioCmd struct {
 	ServerAddr string   `short:"a" default:"${server_addr}" help:"Address to listen on for MCP requests" env:"MNEMONIC_SERVER_ADDR"`
 }
 
-func (c *StdioCmd) Run(logger *log.Logger, conf config.Config) error {
+func (c *StdioCmd) Run(logger *slog.Logger, conf config.Config) error {
 	conf.ApplyOverrides(config.Config{
 		ServerAddr: c.ServerAddr,
 	})
@@ -33,16 +33,16 @@ func (c *StdioCmd) Run(logger *log.Logger, conf config.Config) error {
 		return fmt.Errorf("ensuring daemon: %w", err)
 	}
 
-	logger.Println("starting stdio bridge")
+	logger.Info("starting stdio bridge")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if err := daemon.RunStdioServer(ctx, conf); err != nil {
-		logger.Printf("stdio bridge exited with error: %v", err)
+		logger.Error("stdio bridge exited with error", "err", err)
 		return err
 	}
 
-	logger.Println("stdio bridge exited successfully")
+	logger.Info("stdio bridge exited successfully")
 	return nil
 }
 

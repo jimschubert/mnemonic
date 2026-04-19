@@ -1,9 +1,7 @@
 package main
 
 import (
-	"log"
 	"log/slog"
-	"os"
 
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/controller"
@@ -49,7 +47,7 @@ type EmbedCmd struct {
 	embeddable
 }
 
-func (e *EmbedCmd) Run(logger *log.Logger, conf config.Config) error {
+func (e *EmbedCmd) Run(logger *slog.Logger, conf config.Config) error {
 	e.applyConfig(&conf)
 
 	scopes := createScopes(e.GlobalDir, e.LocalDir, e.Team)
@@ -58,10 +56,10 @@ func (e *EmbedCmd) Run(logger *log.Logger, conf config.Config) error {
 		return err
 	}
 
-	logger.Printf("embedding data (endpoint: %s, model: %s)", conf.Embeddings.Endpoint, conf.Embeddings.Model)
+	logger.Info("embedding data", "endpoint", conf.Embeddings.Endpoint, "model", conf.Embeddings.Model)
 	ctrl, err := controller.New(conf,
 		controller.WithStore(ys),
-		controller.WithLogger(slog.New(slog.NewTextHandler(os.Stderr, nil))),
+		controller.WithLogger(logger),
 		controller.WithSkipInitialSync(true),
 		controller.WithMnemonicDir(e.GlobalDir),
 	)

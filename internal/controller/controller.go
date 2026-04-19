@@ -15,6 +15,7 @@ import (
 	"github.com/jimschubert/mnemonic/internal/embed"
 	"github.com/jimschubert/mnemonic/internal/index"
 	"github.com/jimschubert/mnemonic/internal/index/hnsw"
+	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 )
@@ -64,7 +65,7 @@ var _ SemanticSearcher = (*MemoryController)(nil)
 func New(conf config.Config, opts ...Option) (*MemoryController, error) {
 	o := &options{
 		mnemonicDir: "~/.mnemonic",
-		logger:      slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		logger:      logging.New(slog.LevelWarn),
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -443,9 +444,8 @@ func (mc *MemoryController) flushIndex() error {
 			return fmt.Errorf("creating index file: %w", err)
 		}
 		defer func(f *os.File) {
-			err := f.Close()
-			if err != nil {
-				fmt.Printf("error closing index file: %v\n", err)
+			if err := f.Close(); err != nil {
+				mc.logger.Warn("error closing index file", "err", err)
 			}
 		}(f)
 		if err := exp.Export(f); err != nil {

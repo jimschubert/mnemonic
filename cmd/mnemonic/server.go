@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
-	"os"
 	"path/filepath"
 
 	"github.com/jimschubert/mnemonic/internal/config"
@@ -26,7 +24,7 @@ type ServerCmd struct {
 	embeddable
 }
 
-func (c *ServerCmd) Run(logger *log.Logger, conf config.Config) error {
+func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
 	c.applyConfig(&conf)
 	conf.ApplyOverrides(config.Config{
 		ServerAddr: c.ServerAddr,
@@ -42,7 +40,7 @@ func (c *ServerCmd) Run(logger *log.Logger, conf config.Config) error {
 
 	ctrl, err := controller.New(conf,
 		controller.WithStore(ys),
-		controller.WithLogger(slog.New(slog.NewTextHandler(os.Stderr, nil))),
+		controller.WithLogger(logger),
 		controller.WithSkipInitialSync(true),
 		controller.WithMnemonicDir(c.GlobalDir),
 	)
@@ -50,8 +48,8 @@ func (c *ServerCmd) Run(logger *log.Logger, conf config.Config) error {
 		return err
 	}
 
-	d := daemon.New(ctrl, conf)
-	logger.Printf("starting server (socket: %s, MCP: %s/mcp)", conf.SocketPath(), conf.ServerAddr)
+	d := daemon.New(ctrl, conf, logger)
+	logger.Info("starting server", "socket", conf.SocketPath(), "mcp", conf.ServerAddr+"/mcp")
 	return d.Start(context.Background())
 }
 

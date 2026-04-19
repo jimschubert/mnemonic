@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/jimschubert/mnemonic/internal/config"
+	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store"
 )
 
@@ -44,7 +46,8 @@ func TestDaemonStart_ShutdownRequestStopsServer(t *testing.T) {
 		ClientTimeoutSec: 1,
 	}
 
-	d := New(&store.NoopStore{}, conf)
+	logger := logging.New(slog.LevelInfo)
+	d := New(&store.NoopStore{}, conf, logger)
 	errCh := make(chan error, 1)
 
 	go func() {

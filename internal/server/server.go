@@ -35,8 +35,7 @@ func (s *Server) McpServer() *mcp.Server {
 }
 
 // NewServer injects dependencies and registers the tools.
-func NewServer(store store.Store, conf config.Config) *Server {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+func NewServer(store store.Store, conf config.Config, logger *slog.Logger) *Server {
 	mcpSrv := mcp.NewServer(&mcp.Implementation{
 		Name:    "mnemonic",
 		Version: config.Version,

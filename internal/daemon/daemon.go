@@ -33,13 +33,13 @@ type Daemon struct {
 	startedAt  time.Time
 }
 
-func New(s store.Store, conf config.Config) *Daemon {
-	srv := server.NewServer(s, conf)
+func New(s store.Store, conf config.Config, logger *slog.Logger) *Daemon {
+	srv := server.NewServer(s, conf, logger)
 	return &Daemon{
 		store:      s,
 		conf:       conf,
 		mcpServer:  srv.McpServer(),
-		logger:     slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})),
+		logger:     logger,
 		shutdownCh: make(chan struct{}),
 		startedAt:  time.Now(),
 	}

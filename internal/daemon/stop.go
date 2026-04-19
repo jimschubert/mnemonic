@@ -3,7 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -80,16 +80,16 @@ func isTCPRunning(conf config.Config) bool {
 
 // RequestStop attempts a shutdown via Unix socket then TCP, and verifies each transport
 // is no longer reachable afterwards.
-func RequestStop(conf config.Config, logger *log.Logger) error {
+func RequestStop(conf config.Config, logger *slog.Logger) error {
 	socketSent := false
 	tcpSent := false
 
 	// try to stop unix socket
 	if IsRunning(conf) {
 		if err := sendShutdown(conf, ""); err != nil {
-			logger.Printf("warning: socket shutdown request failed: %v", err)
+			logger.Warn("socket shutdown request failed", "err", err)
 		} else {
-			logger.Printf("shutdown request sent via socket")
+			logger.Info("shutdown request sent via socket")
 			socketSent = true
 		}
 	}
@@ -97,9 +97,9 @@ func RequestStop(conf config.Config, logger *log.Logger) error {
 	// try to stop tcp
 	if isTCPRunning(conf) {
 		if err := sendShutdown(conf, conf.ServerAddr); err != nil {
-			logger.Printf("warning: TCP shutdown request failed: %v", err)
+			logger.Warn("TCP shutdown request failed", "err", err)
 		} else {
-			logger.Printf("shutdown request sent via TCP")
+			logger.Info("shutdown request sent via TCP")
 			tcpSent = true
 		}
 	}
@@ -112,17 +112,17 @@ func RequestStop(conf config.Config, logger *log.Logger) error {
 
 	// check socket has stopped
 	if socketRunning {
-		logger.Printf("warning: socket still reachable (%s)", conf.SocketPath())
+		logger.Warn("socket still reachable", "socket", conf.SocketPath())
 	} else {
-		logger.Printf("socket: stopped")
+		logger.Info("socket stopped")
 	}
 
 	// check tcp has stopped, if applicable
 	if conf.ServerAddr != "" {
 		if tcpRunning {
-			logger.Printf("warning: TCP still reachable (%s)", conf.ServerAddr)
+			logger.Warn("TCP still reachable", "addr", conf.ServerAddr)
 		} else {
-			logger.Printf("TCP: stopped (%s)", conf.ServerAddr)
+			logger.Info("TCP stopped", "addr", conf.ServerAddr)
 		}
 	}
 
