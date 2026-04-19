@@ -179,12 +179,57 @@ func (mc *MemoryController) Promote(id string, targetScope store.Scope) error {
 	return mc.store.Promote(id, targetScope)
 }
 
-func (mc *MemoryController) Upsert(entry *store.Entry) error {
-	if err := mc.store.Upsert(entry); err != nil {
+func (mc *MemoryController) doUpsert(entry *store.Entry) error {
+	err := mc.store.Upsert(entry)
+	if err != nil {
 		return err
 	}
 	mc.indexEntry(entry)
 	return nil
+}
+
+func (mc *MemoryController) Upsert(entry *store.Entry) error {
+	if !mc.embedder.Available() {
+		return mc.doUpsert(entry)
+	}
+
+	// find any semantically equivalent existing entry and reuse its ID to avoid duplicates in the index.
+	query := entry.Content
+	vec, err := mc.embedder.EmbedSingle(query)
+	if err != nil {
+		return mc.doUpsert(entry)
+	}
+
+	results, err := mc.indexer.Search(vec, 3)
+	if err != nil {
+		return mc.doUpsert(entry)
+	}
+
+	for _, r := range results {
+		// TODO: make duplication threshold configurable?
+		if r.Distance < 0.05 {
+			existing, err := mc.store.Get(r.ID)
+			if err != nil {
+				continue
+			}
+
+			entry.ID = existing.ID
+			// bump score because it's obviously an important memory
+			entry.Score = existing.Score + 0.1
+			entry.HitCount = existing.HitCount
+			entry.LastHit = time.Now()
+			entry.Created = existing.Created
+			entry.Source = existing.Source
+
+			// just sent if empty, but maybe merge these later?
+			if len(entry.Tags) == 0 && len(existing.Tags) > 0 {
+				entry.Tags = existing.Tags
+			}
+			break
+		}
+	}
+
+	return mc.doUpsert(entry)
 }
 
 func (mc *MemoryController) Delete(id string) error {

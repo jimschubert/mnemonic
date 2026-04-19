@@ -180,10 +180,13 @@ func (s *Server) handleQuery(_ context.Context, _ *mcp.CallToolRequest, input Qu
 	// this initial query is expected to be maximum 5-10 milliseconds via in-memory index.
 	if input.Query != "" {
 		if ss, ok := s.store.(controller.SemanticSearcher); ok {
+			s.logger.Info("performing semantic search", "query", input.Query, "top_k", topK, "scopes", scopes)
 			entries, err = ss.SemanticSearch(input.Query, topK, scopes)
 			if err != nil {
 				s.logger.Warn("semantic search failed, falling back to keyword", "err", err)
 				entries = nil
+			} else {
+				s.logger.Info("semantic search returned results", "num_results", len(entries))
 			}
 		}
 	}
@@ -206,12 +209,10 @@ func (s *Server) handleQuery(_ context.Context, _ *mcp.CallToolRequest, input Qu
 	results := make([]QueryResult, len(entries))
 	for i, e := range entries {
 		results[i] = QueryResult{
-			ID:       e.ID,
 			Content:  e.Content,
 			Category: e.Category,
 			Tags:     e.Tags,
 			Scope:    e.Scope,
-			Source:   e.Source,
 		}
 	}
 	return nil, QueryOutput{Entries: results}, nil

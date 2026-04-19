@@ -10,24 +10,18 @@ import (
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 )
 
-// EmbedCmd fetches embeddings and builds the HNSW index.
-type EmbedCmd struct {
-	GlobalDir string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
-	LocalDir  string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
-	Team      []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
-
-	Endpoint      string  `short:"e" default:"${embeddings_endpoint}" help:"Full embedding endpoint URL"`
-	Model         string  `short:"m" default:"${embeddings_model}" help:"Embedding model name"`
-	AuthToken     string  `short:"a" help:"Authentication token for embedding endpoint"`
+type embeddable struct {
+	Endpoint      string  `default:"${embeddings_endpoint}" help:"Full embedding endpoint URL"`
+	Model         string  `default:"${embeddings_model}" help:"Embedding model name"`
+	AuthToken     string  `help:"Authentication token for embedding endpoint"`
 	SkipPreflight bool    `default:"${embeddings_skip_preflight}" help:"Skip preflight check before building index"`
-	Dimensions    int     `short:"d" default:"${index_dimensions}" help:"Expected embedding dimensions; auto-verified against test string response"`
-	Connections   int     `short:"c" default:"${index_connections}" help:"Number of connections per node in HNSW graph"`
-	LevelFactor   float64 `short:"b" default:"${index_level_factor}" help:"HNSW level multiplication factor (Ml) for index building"`
-	EfSearch      int     `short:"s" default:"${index_ef_search}" help:"HNSW ef parameter for index searching"`
-	Force         bool    `help:"Overwrite existing index."`
+	Dimensions    int     `default:"${index_dimensions}" help:"Expected embedding dimensions; auto-verified against test string response"`
+	Connections   int     `default:"${index_connections}" help:"Number of connections per node in HNSW graph"`
+	LevelFactor   float64 `default:"${index_level_factor}" help:"HNSW level multiplication factor (Ml) for index building"`
+	EfSearch      int     `default:"${index_ef_search}" help:"HNSW ef parameter for index searching"`
 }
 
-func (e *EmbedCmd) Run(logger *log.Logger, conf config.Config) error {
+func (e *embeddable) applyConfig(conf *config.Config) {
 	conf.ApplyOverrides(config.Config{
 		Embeddings: config.Embeddings{
 			Endpoint:      e.Endpoint,
@@ -42,6 +36,21 @@ func (e *EmbedCmd) Run(logger *log.Logger, conf config.Config) error {
 			EfSearch:    e.EfSearch,
 		},
 	})
+}
+
+// EmbedCmd fetches embeddings and builds the HNSW index.
+type EmbedCmd struct {
+	GlobalDir string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
+	LocalDir  string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
+	Team      []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
+
+	Force bool `help:"Overwrite existing index."`
+
+	embeddable
+}
+
+func (e *EmbedCmd) Run(logger *log.Logger, conf config.Config) error {
+	e.applyConfig(&conf)
 
 	scopes := createScopes(e.GlobalDir, e.LocalDir, e.Team)
 	ys, err := yamlstore.New(scopes)

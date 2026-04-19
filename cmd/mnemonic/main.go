@@ -32,7 +32,7 @@ func main() {
 
 	conf, err := config.Load("~/.mnemonic/config.yaml", ".mnemonic/config.yaml")
 	if err != nil {
-		fmt.Printf("error loading config: %s\n", err)
+		fmt.Fprintf(os.Stderr, "error loading config: %s\n", err)
 		os.Exit(1)
 	}
 

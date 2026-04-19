@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/jimschubert/mnemonic/internal/config"
+	"github.com/jimschubert/mnemonic/internal/controller"
 	"github.com/jimschubert/mnemonic/internal/daemon"
 	"github.com/jimschubert/mnemonic/internal/store"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
@@ -17,11 +20,14 @@ type ServerCmd struct {
 	GlobalDir  string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
 	LocalDir   string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
 	Team       []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
-	Mandatory  []string `short:"m" help:"Additional mandatory categories beyond the defaults (avoidance, security)" env:"MNEMONIC_MANDATORY" sep:","`
 	ServerAddr string   `short:"a" default:"${server_addr}" help:"Address to listen on for MCP requests"  env:"MNEMONIC_SERVER_ADDR"`
+	Mandatory  []string `help:"Additional mandatory categories beyond the defaults (avoidance, security)" env:"MNEMONIC_MANDATORY" sep:","`
+
+	embeddable
 }
 
 func (c *ServerCmd) Run(logger *log.Logger, conf config.Config) error {
+	c.applyConfig(&conf)
 	conf.ApplyOverrides(config.Config{
 		ServerAddr: c.ServerAddr,
 	})
@@ -34,7 +40,17 @@ func (c *ServerCmd) Run(logger *log.Logger, conf config.Config) error {
 		return fmt.Errorf("creating YAML store: %w", err)
 	}
 
-	d := daemon.New(ys, conf)
+	ctrl, err := controller.New(conf,
+		controller.WithStore(ys),
+		controller.WithLogger(slog.New(slog.NewTextHandler(os.Stderr, nil))),
+		controller.WithSkipInitialSync(true),
+		controller.WithMnemonicDir(c.GlobalDir),
+	)
+	if err != nil {
+		return err
+	}
+
+	d := daemon.New(ctrl, conf)
 	logger.Printf("starting server (socket: %s, MCP: %s/mcp)", conf.SocketPath(), conf.ServerAddr)
 	return d.Start(context.Background())
 }

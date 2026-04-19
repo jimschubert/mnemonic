@@ -10,11 +10,11 @@ type QueryInput struct {
 }
 
 type QueryResult struct {
-	ID       string   `json:"id"`
+	ID       string   `json:"id,omitempty"`
 	Content  string   `json:"content"`
 	Category string   `json:"category"`
 	Tags     []string `json:"tags,omitempty"`
-	Scope    string   `json:"scope"`
+	Scope    string   `json:"scope,omitempty"`
 	Source   string   `json:"source,omitempty"`
 }
 
