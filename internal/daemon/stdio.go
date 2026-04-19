@@ -2,10 +2,12 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jimschubert/mnemonic/internal/config"
@@ -44,20 +46,25 @@ func RunStdioServer(ctx context.Context, conf config.Config) error {
 		return fmt.Errorf("listing daemon tools: %w", err)
 	}
 
-	// proxy server forwards all tool calls through to the daemon
-	proxySrv := mcp.NewServer(&mcp.Implementation{Name: "mnemonic", Version: config.Version}, nil)
-	for _, t := range tools.Tools {
-		proxySrv.AddTool(t, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return session.CallTool(ctx, &mcp.CallToolParams{
-				Name:      req.Params.Name,
-				Arguments: req.Params.Arguments,
-			})
-		})
-	}
-
 	// this sets up a 10s polling loop to see if the daemon died, so the stdio server doesn't remain open indefinitely.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// proxy server forwards all tool calls through to the daemon
+	proxySrv := mcp.NewServer(&mcp.Implementation{Name: "mnemonic", Version: config.Version}, nil)
+	for _, t := range tools.Tools {
+		proxySrv.AddTool(t, func(callCtx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			res, err := session.CallTool(callCtx, &mcp.CallToolParams{
+				Name:      req.Params.Name,
+				Arguments: req.Params.Arguments,
+			})
+			if err != nil && strings.Contains(err.Error(), "session not found") {
+				cancel()
+			}
+			return res, err
+		})
+	}
+
 	go func() {
 		interval := 10 * time.Second
 		if i, err := time.ParseDuration(os.Getenv("MNEMONIC_POLL_INTERVAL")); err == nil {
@@ -65,6 +72,9 @@ func RunStdioServer(ctx context.Context, conf config.Config) error {
 		}
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+
+		var daemonStartedAt int64
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -75,11 +85,25 @@ func RunStdioServer(ctx context.Context, conf config.Config) error {
 					cancel()
 					return
 				}
-				_ = resp.Body.Close()
 				if resp.StatusCode != 200 {
+					_ = resp.Body.Close()
 					cancel()
 					return
 				}
+
+				var st struct {
+					StartedAt int64 `json:"started_at"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&st); err == nil {
+					if daemonStartedAt == 0 {
+						daemonStartedAt = st.StartedAt
+					} else if daemonStartedAt != st.StartedAt {
+						_ = resp.Body.Close()
+						cancel()
+						return
+					}
+				}
+				_ = resp.Body.Close()
 			}
 		}
 	}()

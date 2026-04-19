@@ -174,10 +174,11 @@ func (d *Daemon) shutdownHTTPServer(name string, srv *http.Server, timeout time.
 func (d *Daemon) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status":    "healthy",
-		"timestamp": time.Now().Unix(),
-		"version":   config.Version,
-		"uptime":    time.Since(d.startedAt).String(),
+		"status":     "healthy",
+		"timestamp":  time.Now().Unix(),
+		"version":    config.Version,
+		"uptime":     time.Since(d.startedAt).String(),
+		"started_at": d.startedAt.Unix(),
 	})
 }
 
