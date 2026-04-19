@@ -34,6 +34,10 @@ type Daemon struct {
 }
 
 func New(s store.Store, conf config.Config, logger *slog.Logger) *Daemon {
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+
 	srv := server.NewServer(s, conf, logger)
 	return &Daemon{
 		store:      s,

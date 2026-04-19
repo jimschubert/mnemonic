@@ -9,6 +9,7 @@ import (
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/controller"
 	"github.com/jimschubert/mnemonic/internal/daemon"
+	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 )
@@ -40,7 +41,7 @@ func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
 
 	ctrl, err := controller.New(conf,
 		controller.WithStore(ys),
-		controller.WithLogger(logger),
+		controller.WithLogger(logging.ForScope(conf, "controller")),
 		controller.WithSkipInitialSync(true),
 		controller.WithMnemonicDir(c.GlobalDir),
 	)
@@ -48,7 +49,7 @@ func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
 		return err
 	}
 
-	d := daemon.New(ctrl, conf, logger)
+	d := daemon.New(ctrl, conf, logging.ForScope(conf, "daemon"))
 	logger.Info("starting server", "socket", conf.SocketPath(), "mcp", conf.ServerAddr+"/mcp")
 	return d.Start(context.Background())
 }

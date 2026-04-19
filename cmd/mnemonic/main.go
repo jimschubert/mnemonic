@@ -29,6 +29,7 @@ var CLI struct {
 }
 
 func main() {
+	// root logger. sub-components will use logging.ForScope to pick up user configurations (if available).
 	logger := logging.New(slog.LevelInfo)
 
 	conf, err := config.Load("~/.mnemonic/config.yaml", ".mnemonic/config.yaml")

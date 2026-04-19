@@ -65,7 +65,7 @@ var _ SemanticSearcher = (*MemoryController)(nil)
 func New(conf config.Config, opts ...Option) (*MemoryController, error) {
 	o := &options{
 		mnemonicDir: "~/.mnemonic",
-		logger:      logging.New(slog.LevelWarn),
+		logger:      logging.ForScope(conf, "controller"),
 	}
 	for _, opt := range opts {
 		opt(o)
