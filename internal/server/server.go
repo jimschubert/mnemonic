@@ -175,6 +175,8 @@ func (s *Server) handleQuery(_ context.Context, _ *mcp.CallToolRequest, input Qu
 	var entries []store.Entry
 	var err error
 
+	s.logger.Debug("handleQuery", "query", input.Query, "top_k", topK, "scopes", scopes)
+
 	// try semantic search first when a query is provided
 	// this initial query is expected to be maximum 5-10 milliseconds via in-memory index.
 	if input.Query != "" {
@@ -226,6 +228,9 @@ func (s *Server) handleAdd(_ context.Context, _ *mcp.CallToolRequest, input AddI
 	if source == "" {
 		source = "agent:" + time.Now().Format("2006-01-02")
 	}
+
+	s.logger.Debug("handleAdd", "content", input.Content, "category", input.Category, "tags", input.Tags, "scope", scope, "source", source)
+
 	entry := &store.Entry{
 		Content:  input.Content,
 		Category: input.Category,
@@ -241,6 +246,7 @@ func (s *Server) handleAdd(_ context.Context, _ *mcp.CallToolRequest, input AddI
 }
 
 func (s *Server) handleReinforce(_ context.Context, _ *mcp.CallToolRequest, input ReinforceInput) (*mcp.CallToolResult, ReinforceOutput, error) {
+	s.logger.Debug("handleReinforce", "id", input.ID, "delta", input.Delta)
 	if err := s.store.Score(input.ID, input.Delta); err != nil {
 		return nil, ReinforceOutput{}, err
 	}
@@ -248,6 +254,7 @@ func (s *Server) handleReinforce(_ context.Context, _ *mcp.CallToolRequest, inpu
 }
 
 func (s *Server) handleListHeads(_ context.Context, _ *mcp.CallToolRequest, _ ListHeadsInput) (*mcp.CallToolResult, ListHeadsOutput, error) {
+	s.logger.Debug("handleListHeads")
 	heads, err := s.store.ListHeads(nil)
 	return nil, ListHeadsOutput{Heads: heads}, err
 }

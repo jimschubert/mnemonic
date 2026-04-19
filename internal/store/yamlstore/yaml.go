@@ -3,6 +3,8 @@ package yamlstore
 import (
 	"crypto/rand"
 	"fmt"
+	"io"
+	"log/slog"
 	"maps"
 	"math"
 	"os"
@@ -46,8 +48,9 @@ type YAMLStore struct {
 	// data maps scope -> category -> file
 	data map[store.Scope]map[string]*file
 	// dirty maps scope -> category -> needs flush
-	dirty map[store.Scope]map[string]bool
-	done  chan struct{}
+	dirty  map[store.Scope]map[string]bool
+	done   chan struct{}
+	logger *slog.Logger
 }
 
 // New creates a YAMLStore. Call with a mapping of scope names to directory paths.
@@ -59,13 +62,17 @@ type YAMLStore struct {
 //	store, err := yamlstore.New(map[Scope]string{
 //	    "global":    "~/.mnemonic/global/",
 //	    "team:acme": "~/.mnemonic/teams/acme/",
-//	})
-func New(scopeDirs map[store.Scope]string) (*YAMLStore, error) {
+//	}, logger)
+func New(scopeDirs map[store.Scope]string, logger *slog.Logger) (*YAMLStore, error) {
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	s := &YAMLStore{
-		dirs:  scopeDirs,
-		data:  make(map[store.Scope]map[string]*file),
-		dirty: make(map[store.Scope]map[string]bool),
-		done:  make(chan struct{}),
+		dirs:   scopeDirs,
+		data:   make(map[store.Scope]map[string]*file),
+		dirty:  make(map[store.Scope]map[string]bool),
+		done:   make(chan struct{}),
+		logger: logger,
 	}
 
 	for scope, dir := range scopeDirs {
@@ -316,8 +323,10 @@ func (s *YAMLStore) flush() error {
 	for scope, files := range s.dirty {
 		for category := range files {
 			if err := s.persist(scope, category); err != nil {
+				s.logger.Warn("flush error", "scope", scope, "category", category, "err", err)
 				return err
 			}
+			s.logger.Debug("flushed category", "scope", scope, "category", category)
 			delete(files, category)
 		}
 	}
@@ -382,7 +391,9 @@ func (s *YAMLStore) loadScope(scope store.Scope, dir string) error {
 			return fmt.Errorf("loading category %q: %w", category, err)
 		}
 		s.data[scope][category] = f
+		s.logger.Info("loaded category", "scope", scope, "category", category, "entries", len(f.Entries))
 	}
+	s.logger.Info("loaded scope", "scope", scope, "dir", dir, "categories", len(s.data[scope]))
 	return nil
 }
 
@@ -407,7 +418,9 @@ func (s *YAMLStore) persist(scope store.Scope, category string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, category+".yaml"), b, 0o644)
+	path := filepath.Join(dir, category+".yaml")
+	s.logger.Debug("persisting category", "scope", scope, "category", category, "path", path)
+	return os.WriteFile(path, b, 0o644)
 }
 
 // scopesForQuery resolves which scopes to query.

@@ -84,7 +84,7 @@ func New(conf config.Config, opts ...Option) (*MemoryController, error) {
 		s, err := yamlstore.New(map[store.Scope]string{
 			store.ScopeGlobal: filepath.Join(o.mnemonicDir, "global"),
 			"project":         ".mnemonic/project",
-		})
+		}, logging.ForScope(conf, "store"))
 		if err != nil {
 			return nil, fmt.Errorf("constructing store: %w", err)
 		}

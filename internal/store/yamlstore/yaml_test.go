@@ -181,7 +181,7 @@ func setupScopeDir(t *testing.T, content string) string {
 func newTestStore(t *testing.T, content string) (*YAMLStore, string) {
 	t.Helper()
 	dir := setupScopeDir(t, content)
-	s, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
+	s, err := New(map[store.Scope]string{store.ScopeGlobal: dir}, nil)
 	if err != nil {
 		t.Fatalf("failed to create test store: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestNew_CreatesNonExistentDir(t *testing.T) {
 	base := t.TempDir()
 	scopeDir := filepath.Join(base, "newscope")
 
-	s, err := New(map[store.Scope]string{store.ScopeGlobal: scopeDir})
+	s, err := New(map[store.Scope]string{store.ScopeGlobal: scopeDir}, nil)
 	assert.NoError(t, err)
 
 	entries, err := s.All(nil)
@@ -216,7 +216,7 @@ func TestNew_InvalidYAML(t *testing.T) {
 	err := os.WriteFile(filepath.Join(dir, "bad.yaml"), []byte("{{{invalid yaml}}}"), 0o644)
 	assert.NoError(t, err)
 
-	_, err = New(map[store.Scope]string{store.ScopeGlobal: dir})
+	_, err = New(map[store.Scope]string{store.ScopeGlobal: dir}, nil)
 	assert.Error(t, err)
 }
 
@@ -265,7 +265,7 @@ entries:
 	s, err := New(map[store.Scope]string{
 		store.ScopeGlobal: globalDir,
 		"project":         projectDir,
-	})
+	}, nil)
 	assert.NoError(t, err)
 
 	t.Run("all scopes", func(t *testing.T) {
@@ -363,13 +363,13 @@ func TestScore(t *testing.T) {
 
 	t.Run("persistence", func(t *testing.T) {
 		dir := setupScopeDir(t, loadTestdata(t))
-		s, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
+		s, err := New(map[store.Scope]string{store.ScopeGlobal: dir}, nil)
 		assert.NoError(t, err)
 
 		err = s.Score("stencil-custom-funcs", 0.25)
 		assert.NoError(t, err)
 
-		s2, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
+		s2, err := New(map[store.Scope]string{store.ScopeGlobal: dir}, nil)
 		assert.NoError(t, err)
 		entry, err := s2.Get("stencil-custom-funcs")
 		assert.NoError(t, err)
@@ -400,13 +400,13 @@ func TestDelete(t *testing.T) {
 
 	t.Run("persistence", func(t *testing.T) {
 		dir := setupScopeDir(t, loadTestdata(t))
-		s, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
+		s, err := New(map[store.Scope]string{store.ScopeGlobal: dir}, nil)
 		assert.NoError(t, err)
 
 		err = s.Delete("service-layer-pattern")
 		assert.NoError(t, err)
 
-		s2, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
+		s2, err := New(map[store.Scope]string{store.ScopeGlobal: dir}, nil)
 		assert.NoError(t, err)
 		_, err = s2.Get("service-layer-pattern")
 		assert.Error(t, err)
@@ -475,7 +475,7 @@ func TestMultipleScopes(t *testing.T) {
 	s, err := New(map[store.Scope]string{
 		"global":    globalDir,
 		"team:acme": teamDir,
-	})
+	}, nil)
 	assert.NoError(t, err)
 
 	t.Run("all entries from all scopes", func(t *testing.T) {
@@ -541,7 +541,7 @@ func TestPersist_CreatesDirectoryIfNeeded(t *testing.T) {
 	base := t.TempDir()
 	scopeDir := filepath.Join(base, "subdir", "nested")
 
-	s, err := New(map[store.Scope]string{store.ScopeGlobal: scopeDir})
+	s, err := New(map[store.Scope]string{store.ScopeGlobal: scopeDir}, nil)
 	assert.NoError(t, err)
 
 	_, err = os.Stat(scopeDir)
@@ -576,7 +576,7 @@ func TestScore_UpdatesLastHit(t *testing.T) {
 func TestListHeads_EmptyStore(t *testing.T) {
 	scopeDir := t.TempDir() // empty directory -> no category files
 
-	s, err := New(map[store.Scope]string{store.ScopeGlobal: scopeDir})
+	s, err := New(map[store.Scope]string{store.ScopeGlobal: scopeDir}, nil)
 	assert.NoError(t, err)
 
 	heads, err := s.ListHeads(nil)
@@ -762,7 +762,7 @@ func TestUpsert(t *testing.T) {
 
 	t.Run("persistence", func(t *testing.T) {
 		dir := setupScopeDir(t, singleEntryYAML)
-		s, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
+		s, err := New(map[store.Scope]string{store.ScopeGlobal: dir}, nil)
 		assert.NoError(t, err)
 
 		entry := &store.Entry{
@@ -775,7 +775,7 @@ func TestUpsert(t *testing.T) {
 		err = s.Upsert(entry)
 		assert.NoError(t, err)
 
-		s2, err := New(map[store.Scope]string{store.ScopeGlobal: dir})
+		s2, err := New(map[store.Scope]string{store.ScopeGlobal: dir}, nil)
 		assert.NoError(t, err)
 		got, err := s2.Get("persisted-entry")
 		assert.NoError(t, err)
@@ -969,7 +969,7 @@ func TestPromote(t *testing.T) {
 		s, err := New(map[store.Scope]string{
 			store.ScopeGlobal: globalDir,
 			"project":         projectDir,
-		})
+		}, nil)
 		assert.NoError(t, err)
 		return s, globalDir, projectDir
 	}
@@ -1016,7 +1016,7 @@ func TestPromote(t *testing.T) {
 		s2, err := New(map[store.Scope]string{
 			store.ScopeGlobal: globalPath,
 			"project":         projectPath,
-		})
+		}, nil)
 		assert.NoError(t, err)
 
 		_, err = s2.Get("global-entry")

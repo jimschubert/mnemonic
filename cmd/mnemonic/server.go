@@ -40,7 +40,7 @@ func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
 	store.WithAdditionalMandatoryCategories(c.Mandatory)
 
 	scopes := createScopes(c.GlobalDir, c.LocalDir, c.Team)
-	ys, err := yamlstore.New(scopes)
+	ys, err := yamlstore.New(scopes, logging.ForScope(conf, "store"))
 	if err != nil {
 		return fmt.Errorf("creating YAML store: %w", err)
 	}

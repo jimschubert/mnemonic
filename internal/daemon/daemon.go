@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"github.com/jimschubert/mnemonic/internal/config"
+	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/server"
+	"github.com/jimschubert/mnemonic/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -37,7 +39,7 @@ func New(s store.Store, conf config.Config, logger *slog.Logger) *Daemon {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 
-	srv := server.NewServer(s, conf, logger)
+	srv := server.NewServer(s, conf, logging.ForScope(conf, "server"))
 	return &Daemon{
 		store:      s,
 		conf:       conf,
