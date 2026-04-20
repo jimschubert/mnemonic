@@ -25,7 +25,7 @@ type Store interface {
 	All(scopes []Scope) ([]Entry, error)
 	AllByCategory(category string, topK int, scopes []Scope) ([]Entry, error)
 	Get(id string) (*Entry, error)
-	Query(category string, tags []string) ([]*Entry, error)
+	Query(category string, tags []string) ([]Entry, error)
 	QueryByCategory(category, query string, topK int, scopes []Scope) ([]Entry, error)
 	Upsert(entry *Entry) error
 	Score(id string, delta float64) error

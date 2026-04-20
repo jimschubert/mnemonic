@@ -19,7 +19,7 @@ func (s *NoopStore) Get(id string) (*Entry, error) {
 	return nil, nil
 }
 
-func (s *NoopStore) Query(category string, tags []string) ([]*Entry, error) {
+func (s *NoopStore) Query(category string, tags []string) ([]Entry, error) {
 	return nil, nil
 }
 

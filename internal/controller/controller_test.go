@@ -104,7 +104,7 @@ func (m *mockStore) Get(id string) (*store.Entry, error) {
 	return e, nil
 }
 
-func (m *mockStore) Query(_ string, _ []string) ([]*store.Entry, error) { return nil, nil }
+func (m *mockStore) Query(_ string, _ []string) ([]store.Entry, error) { return nil, nil }
 
 func (m *mockStore) QueryByCategory(_, _ string, _ int, _ []store.Scope) ([]store.Entry, error) {
 	return nil, nil

@@ -164,7 +164,7 @@ func (mc *MemoryController) Get(id string) (*store.Entry, error) {
 	return mc.store.Get(id)
 }
 
-func (mc *MemoryController) Query(category string, tags []string) ([]*store.Entry, error) {
+func (mc *MemoryController) Query(category string, tags []string) ([]store.Entry, error) {
 	return mc.store.Query(category, tags)
 }
 

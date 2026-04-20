@@ -108,6 +108,7 @@ func (s *YAMLStore) All(scopes []store.Scope) ([]store.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entries := s.allEntries(s.scopesForQuery(scopes))
+	sortByWeightedScore(entries)
 	s.markHits(time.Now(), entries)
 	return entries, nil
 }
@@ -185,7 +186,7 @@ func (s *YAMLStore) QueryByCategory(category, query string, topK int, scopes []s
 	return candidates, nil
 }
 
-func (s *YAMLStore) Query(category string, tags []string) ([]*store.Entry, error) {
+func (s *YAMLStore) Query(category string, tags []string) ([]store.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	lower := make([]string, len(tags))
@@ -193,7 +194,6 @@ func (s *YAMLStore) Query(category string, tags []string) ([]*store.Entry, error
 		lower[i] = strings.ToLower(t)
 	}
 	var hits []store.Entry
-	var out []*store.Entry
 	for _, e := range s.allEntries(s.scopesForQuery(nil)) {
 		if category != "" && e.Category != category {
 			continue
@@ -202,10 +202,12 @@ func (s *YAMLStore) Query(category string, tags []string) ([]*store.Entry, error
 			continue
 		}
 		hits = append(hits, e)
-		out = append(out, new(e))
 	}
+
+	sortByWeightedScore(hits)
+
 	s.markHits(time.Now(), hits)
-	return out, nil
+	return hits, nil
 }
 
 func (s *YAMLStore) Upsert(entry *store.Entry) error {
