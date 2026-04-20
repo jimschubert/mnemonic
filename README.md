@@ -88,7 +88,7 @@ If your client only supports HTTP, run `mnemonic server` and connect to
 
 This is a good starting instruction block for most coding agents:
 
-``` markdown
+```markdown
 ## Memory
 
 Before starting any task, call `mnemonic_query` with a description of the work.
