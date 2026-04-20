@@ -14,11 +14,9 @@ func BearerAuth(token string, exemptPaths ...string) func(http.Handler) http.Han
 		}
 		expected := "Bearer " + token
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			for _, p := range exemptPaths {
-				if r.URL.Path == p {
-					next.ServeHTTP(w, r)
-					return
-				}
+			if slices.Contains(exemptPaths, r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
 			}
 			if r.Header.Get("Authorization") != expected {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
