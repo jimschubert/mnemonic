@@ -23,9 +23,8 @@ type StdioCmd struct {
 }
 
 func (c *StdioCmd) Run(logger *slog.Logger, conf config.Config) error {
-	conf.ApplyOverrides(config.Config{
-		ServerAddr: c.ServerAddr,
-	})
+	// explicitly assign because conf.ApplyOverrides ignores empty strings
+	conf.ServerAddr = c.ServerAddr
 
 	extraEnv := c.daemonEnv()
 

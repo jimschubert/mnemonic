@@ -31,11 +31,13 @@ type ServerCmd struct {
 func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
 	c.Embedding.applyConfig(&conf)
 	conf.ApplyOverrides(config.Config{
-		ServerAddr:            c.ServerAddr,
 		AuthToken:             c.AuthToken,
 		AllowedOrigins:        c.AllowedOrigins,
 		UnauthenticatedStatus: c.UnauthenticatedStatus,
 	})
+
+	// explicitly assign because conf.ApplyOverrides ignores empty strings
+	conf.ServerAddr = c.ServerAddr
 
 	store.WithAdditionalMandatoryCategories(c.Mandatory)
 
