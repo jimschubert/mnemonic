@@ -192,11 +192,11 @@ func TestTCPHandlerFromConfig(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "auth required, /api/status exempted when flag set",
+			name:                  "auth required, /api/status exempted when flag set",
 			authToken:             "tok",
 			unauthenticatedStatus: true,
-			path:       "/api/status",
-			wantStatus: http.StatusOK,
+			path:                  "/api/status",
+			wantStatus:            http.StatusOK,
 		},
 		{
 			name:       "auth required, /api/status NOT exempted when flag unset",

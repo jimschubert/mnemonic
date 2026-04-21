@@ -115,3 +115,8 @@ func (idx *Index) Search(target []float32, k int) ([]index.SearchResult, error) 
 
 	return out, nil
 }
+
+// LookupVector returns the id's vector, plus bool indicating if it was found.
+func (idx *Index) LookupVector(id string) ([]float32, bool) {
+	return idx.graph.Lookup(id)
+}

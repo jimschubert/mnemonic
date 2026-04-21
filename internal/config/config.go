@@ -36,10 +36,10 @@ type Embeddings struct {
 type Config struct {
 	LogLevel string `yaml:"log_level" env:"LOG_LEVEL,default=warn"`
 	// Logging allows for scoped logging, e.g. server=warn; scopes will be 1:1 with packages, e.g. server, store, etc.
-	Logging              map[string]string `yaml:"logging" env:"MNEMONIC_LOGGING,separator=="`
-	ClientTimeoutSec     int               `yaml:"client_timeout_sec" env:"MNEMONIC_CLIENT_TIMEOUT_SEC,default=5"`
-	ServerAddr           string            `yaml:"server_addr" env:"MNEMONIC_SERVER_ADDR,default=localhost:20001"`
-	SocketPathRaw        string            `yaml:"socket_path" env:"MNEMONIC_SOCKET_PATH,default=~/.mnemonic/mnemonic.sock"`
+	Logging          map[string]string `yaml:"logging" env:"MNEMONIC_LOGGING,separator=="`
+	ClientTimeoutSec int               `yaml:"client_timeout_sec" env:"MNEMONIC_CLIENT_TIMEOUT_SEC,default=5"`
+	ServerAddr       string            `yaml:"server_addr" env:"MNEMONIC_SERVER_ADDR,default=localhost:20001"`
+	SocketPathRaw    string            `yaml:"socket_path" env:"MNEMONIC_SOCKET_PATH,default=~/.mnemonic/mnemonic.sock"`
 	// AuthToken, if non-empty, requires all TCP HTTP requests to present "Authorization: Bearer <token>".
 	AuthToken string `yaml:"auth_token" env:"MNEMONIC_AUTH_TOKEN"`
 	// AllowedOrigins enables CORS for the listed origins. Use "*" to permit any origin.

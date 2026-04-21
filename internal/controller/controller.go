@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,9 +52,12 @@ type MemoryController struct {
 	indexPath string
 	metaPath  string
 
-	mu    sync.Mutex
-	dirty bool
-	done  chan struct{}
+	// mu guards dirty flag and meta
+	mu sync.Mutex
+	// indexMu guards indexer (coder/hnsw is not thread-safe)
+	indexMu sync.RWMutex
+	dirty   bool
+	done    chan struct{}
 }
 
 var _ store.Store = (*MemoryController)(nil)
@@ -201,7 +205,9 @@ func (mc *MemoryController) Upsert(entry *store.Entry) error {
 		return mc.doUpsert(entry)
 	}
 
+	mc.indexMu.RLock()
 	results, err := mc.indexer.Search(vec, 3)
+	mc.indexMu.RUnlock()
 	if err != nil {
 		return mc.doUpsert(entry)
 	}
@@ -254,7 +260,9 @@ func (mc *MemoryController) SemanticSearch(query string, k int, scopes []store.S
 	}
 
 	// k*2 to allow for filtering by scope (may result in <k results)
+	mc.indexMu.RLock()
 	results, err := mc.indexer.Search(vec, k*2)
+	mc.indexMu.RUnlock()
 	if err != nil {
 		return nil, fmt.Errorf("index search: %w", err)
 	}
@@ -283,6 +291,108 @@ func (mc *MemoryController) SemanticSearch(query string, k int, scopes []store.S
 	return entries, nil
 }
 
+type SimilarEntry struct {
+	store.Entry
+	Distance float32
+}
+
+// FindSimilar finds semantically similar entries by id with a threshold of similarity. A higher threshold means more similar results.
+func (mc *MemoryController) FindSimilar(id string, threshold float64) ([]SimilarEntry, error) {
+	if !mc.embedder.Available() {
+		return nil, ErrEmbedderNotAvailable
+	}
+
+	// Use the indexed vector, as embedding can return slightly different values each time you call it
+	mc.indexMu.RLock()
+	vec, ok := mc.indexer.LookupVector(id)
+	mc.indexMu.RUnlock()
+
+	if !ok {
+		// entry not yet indexed; fall back to embedding
+		entry, err := mc.store.Get(id)
+		if err != nil {
+			return nil, fmt.Errorf("getting entry for similarity check: %w", err)
+		}
+		vec, err = mc.embedder.EmbedSingle(entry.Content)
+		if err != nil {
+			return nil, fmt.Errorf("embedding entry for similarity check: %w", err)
+		}
+	}
+
+	// threshold of 0.9 (90% similar) means a distance of 0.1
+	targetDistance := float32(1.0 - threshold)
+
+	mc.indexMu.RLock()
+	// k=10 should be good, but maybe this could be configurable?
+	results, err := mc.indexer.Search(vec, 10)
+	mc.indexMu.RUnlock()
+	if err != nil {
+		return nil, fmt.Errorf("index search: %w", err)
+	}
+
+	var similar []SimilarEntry
+	for _, r := range results {
+		if r.ID == id {
+			continue
+		}
+		if r.Distance > targetDistance {
+			continue
+		}
+		e, err := mc.store.Get(r.ID)
+		if err != nil {
+			continue
+		}
+		similar = append(similar, SimilarEntry{
+			Entry:    *e,
+			Distance: r.Distance,
+		})
+	}
+
+	return similar, nil
+}
+
+// Merge takes the text of the entry (keepId) and combines other metadata from the other entry (deleteId), then deletes the other entry.
+// Text is only keept from the first (keepId), and fully discarded from the second (deleteId).
+func (mc *MemoryController) Merge(keepId string, deleteId string) error {
+	keep, err := mc.store.Get(keepId)
+	if err != nil {
+		return fmt.Errorf("getting first entry %q: %w", keepId, err)
+	}
+	del, err := mc.store.Get(deleteId)
+	if err != nil {
+		return fmt.Errorf("getting second entry %q: %w", deleteId, err)
+	}
+
+	tagSet := make(map[string]bool)
+	for _, t := range keep.Tags {
+		tagSet[t] = true
+	}
+	for _, t := range del.Tags {
+		if !tagSet[t] {
+			keep.Tags = append(keep.Tags, t)
+			tagSet[t] = true
+		}
+	}
+
+	keep.Score = math.Max(keep.Score, del.Score)
+	keep.HitCount += del.HitCount
+	if del.LastHit.After(keep.LastHit) {
+		keep.LastHit = del.LastHit
+	}
+
+	// TODO: rather than keeping one content and deleting the other, is there value in merging the text?
+
+	if err := mc.store.Upsert(keep); err != nil {
+		return fmt.Errorf("updating kept entry after merge: %w", err)
+	}
+
+	if err := mc.store.Delete(deleteId); err != nil {
+		return fmt.Errorf("deleting other entry after merge: %w", err)
+	}
+
+	return nil
+}
+
 func (mc *MemoryController) loadIndex() error {
 	meta, err := loadMetadata(mc.metaPath)
 	if err != nil {
@@ -307,7 +417,39 @@ func (mc *MemoryController) loadIndex() error {
 			return fmt.Errorf("importing index: %w", err)
 		}
 	}
+
+	if err := mc.validateIndex(); err != nil {
+		mc.logger.Warn("loaded index failed validation, rebuilding", "err", err)
+		mc.indexer = hnsw.New(mc.conf)
+		mc.meta = newMetadata()
+		return nil
+	}
+
 	return nil
+}
+
+// validateIndex makes sure the index is usable.
+// necessary because I was seeing panics lack of mutexes around hnsw graph, which is apparently not thread-safe.
+func (mc *MemoryController) validateIndex() (retErr error) {
+	if mc.indexer == nil || mc.meta == nil || len(mc.meta.Entries) == 0 {
+		return nil
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = fmt.Errorf("index validation panicked (corrupted index file): %v", r)
+		}
+	}()
+
+	testVec := make([]float32, mc.conf.Index.Dimensions)
+	for i := range testVec {
+		testVec[i] = 0.5
+	}
+
+	mc.indexMu.RLock()
+	_, retErr = mc.indexer.Search(testVec, 1)
+	mc.indexMu.RUnlock()
+	return retErr
 }
 
 // BuildIndexes builds the index or force rebuilds the entire index from scratch.
@@ -322,10 +464,13 @@ func (mc *MemoryController) BuildIndexes(force bool) error {
 	}
 
 	if force {
-		// clear existing index and metadata
-		for id := range mc.meta.Entries {
-			_ = mc.indexer.DeleteVector(id)
-		}
+		mc.logger.Info("force rebuilding indexer",
+			"type", "hnsw",
+			"dimensions", mc.conf.Index.Dimensions,
+			"connections", mc.conf.Index.Connections,
+			"level_factor", mc.conf.Index.LevelFactor,
+			"ef_search", mc.conf.Index.EfSearch)
+		mc.indexer = hnsw.New(mc.conf)
 		mc.meta = newMetadata()
 	}
 
@@ -342,7 +487,9 @@ func (mc *MemoryController) BuildIndexes(force bool) error {
 	// remove stale entries
 	for id := range mc.meta.Entries {
 		if _, ok := activeIDs[id]; !ok {
+			mc.indexMu.Lock()
 			_ = mc.indexer.DeleteVector(id)
+			mc.indexMu.Unlock()
 			mc.meta.remove(id)
 		}
 	}
@@ -366,7 +513,10 @@ func (mc *MemoryController) BuildIndexes(force bool) error {
 	}
 
 	for i, e := range toEmbed {
-		if err := mc.indexer.InsertVector(e.ID, vectors[i]); err != nil {
+		mc.indexMu.Lock()
+		err := mc.indexer.InsertVector(e.ID, vectors[i])
+		mc.indexMu.Unlock()
+		if err != nil {
 			mc.logger.Warn("failed to index entry", "id", e.ID, "err", err)
 			continue
 		}
@@ -386,6 +536,8 @@ func (mc *MemoryController) indexEntry(entry *store.Entry) {
 		mc.logger.Warn("failed to embed entry", "id", entry.ID, "err", err)
 		return
 	}
+	mc.indexMu.Lock()
+	defer mc.indexMu.Unlock()
 	if err := mc.indexer.InsertVector(entry.ID, vec); err != nil {
 		mc.logger.Warn("failed to index entry", "id", entry.ID, "err", err)
 		return
@@ -398,13 +550,17 @@ func (mc *MemoryController) indexEntry(entry *store.Entry) {
 
 func (mc *MemoryController) removeFromIndex(id string) {
 	mc.mu.Lock()
-	defer mc.mu.Unlock()
 	if !mc.meta.has(id) {
+		mc.mu.Unlock()
 		return
 	}
-	_ = mc.indexer.DeleteVector(id)
 	mc.meta.remove(id)
 	mc.dirty = true
+	mc.mu.Unlock()
+
+	mc.indexMu.Lock()
+	_ = mc.indexer.DeleteVector(id)
+	mc.indexMu.Unlock()
 }
 
 func (mc *MemoryController) markDirty() {
@@ -448,7 +604,10 @@ func (mc *MemoryController) flushIndex() error {
 				mc.logger.Warn("error closing index file", "err", err)
 			}
 		}(f)
-		if err := exp.Export(f); err != nil {
+		mc.indexMu.RLock()
+		err = exp.Export(f)
+		mc.indexMu.RUnlock()
+		if err != nil {
 			return fmt.Errorf("exporting index: %w", err)
 		}
 	}

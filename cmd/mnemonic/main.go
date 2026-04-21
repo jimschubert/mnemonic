@@ -25,6 +25,7 @@ var CLI struct {
 	Server  ServerCmd        `cmd:"" help:"Start the MCP HTTP server, starting the daemon if needed"`
 	Stop    StopCmd          `cmd:"" help:"Send a shutdown request to a running daemon"`
 	Embed   EmbedCmd         `cmd:"" help:"Fetch embeddings and build the HNSW index"`
+	Lint    LintCmd          `cmd:"" help:"Analyze memory store for redundancy and resolve interactively"`
 	Version kong.VersionFlag `short:"v" help:"Print version information"`
 }
 

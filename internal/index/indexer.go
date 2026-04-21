@@ -10,6 +10,8 @@ type Indexer interface {
 	DeleteVector(id string) error
 	// Search returns the k nearest neighbors to the target vector.
 	Search(target []float32, k int) ([]SearchResult, error)
+	// LookupVector returns the stored vector for the given ID, if present.
+	LookupVector(id string) ([]float32, bool)
 }
 
 // Exporter is an optional interface for indexes that support binary serialization.

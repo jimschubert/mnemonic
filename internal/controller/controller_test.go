@@ -47,6 +47,10 @@ type mockIndexer struct {
 	vectors map[string][]float32
 }
 
+func (m *mockIndexer) LookupVector(id string) ([]float32, bool) {
+	return m.vectors[id], true
+}
+
 func newMockIndexer() *mockIndexer {
 	return &mockIndexer{vectors: make(map[string][]float32)}
 }

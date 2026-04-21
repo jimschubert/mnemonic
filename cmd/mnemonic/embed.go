@@ -52,7 +52,7 @@ func (e *EmbedCmd) Run(logger *slog.Logger, conf config.Config) error {
 	e.Embedding.applyConfig(&conf)
 
 	scopes := createScopes(e.GlobalDir, e.LocalDir, e.Team)
-	ys, err := yamlstore.New(scopes, logging.ForScope(conf, "store"))
+	ys, err := yamlstore.New(scopes, logging.ForScope(conf, "store"), yamlstore.WithAutoHitCounting(false))
 	if err != nil {
 		return err
 	}

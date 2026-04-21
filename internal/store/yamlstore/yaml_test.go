@@ -1083,6 +1083,93 @@ func TestQuery(t *testing.T) {
 	})
 }
 
+func TestSortByWeightedScore(t *testing.T) {
+	sometime := time.Now()
+	recent := sometime.Add(-24 * time.Hour)
+	old := sometime.Add(-365 * 24 * time.Hour)
+
+	tests := []struct {
+		name    string
+		input   []store.Entry
+		wantIDs []string
+	}{
+		{
+			name:    "empty slice",
+			input:   []store.Entry{},
+			wantIDs: []string{},
+		},
+		{
+			name: "single entry",
+			input: []store.Entry{
+				{ID: "a", Score: 1.0, LastHit: sometime},
+			},
+			wantIDs: []string{"a"},
+		},
+		{
+			name: "higher score first",
+			input: []store.Entry{
+				{ID: "low", Score: 1.0, LastHit: sometime},
+				{ID: "high", Score: 100.0, LastHit: sometime},
+			},
+			wantIDs: []string{"high", "low"},
+		},
+		{
+			name: "same score more recent first",
+			input: []store.Entry{
+				{ID: "stale", Score: 1.0, LastHit: old},
+				{ID: "fresh", Score: 1.0, LastHit: recent},
+			},
+			wantIDs: []string{"fresh", "stale"},
+		},
+		{
+			name: "equal weighted score orders by id (epsilon use case)",
+			input: []store.Entry{
+				{ID: "zzz", Score: 1.0, LastHit: sometime},
+				{ID: "aaa", Score: 1.0, LastHit: sometime},
+				{ID: "mmm", Score: 1.0, LastHit: sometime},
+			},
+			wantIDs: []string{"aaa", "mmm", "zzz"},
+		},
+		{
+			name: "already sorted preserved",
+			input: []store.Entry{
+				{ID: "first", Score: 10.0, LastHit: sometime},
+				{ID: "second", Score: 5.0, LastHit: sometime},
+				{ID: "third", Score: 1.0, LastHit: sometime},
+			},
+			wantIDs: []string{"first", "second", "third"},
+		},
+		{
+			name: "reverse sorted gets correctly sorted",
+			input: []store.Entry{
+				{ID: "third", Score: 1.0, LastHit: sometime},
+				{ID: "second", Score: 5.0, LastHit: sometime},
+				{ID: "first", Score: 10.0, LastHit: sometime},
+			},
+			wantIDs: []string{"first", "second", "third"},
+		},
+		{
+			name: "fallback to created when no hits",
+			input: []store.Entry{
+				{ID: "no-hit", Score: 1.0, Created: old},
+				{ID: "recent-hit", Score: 1.0, LastHit: recent},
+			},
+			wantIDs: []string{"recent-hit", "no-hit"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sortByWeightedScore(tt.input)
+			gotIDs := make([]string, len(tt.input))
+			for i, e := range tt.input {
+				gotIDs[i] = e.ID
+			}
+			assert.Equal(t, tt.wantIDs, gotIDs)
+		})
+	}
+}
+
 func TestWeightedScore(t *testing.T) {
 	t.Run("recent hit has higher score than old hit", func(t *testing.T) {
 		recent := store.Entry{Score: 1.0, LastHit: time.Now()}

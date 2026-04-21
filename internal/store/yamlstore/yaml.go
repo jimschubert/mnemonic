@@ -1,6 +1,7 @@
 package yamlstore
 
 import (
+	"cmp"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -30,6 +31,21 @@ var _ store.Store = (*YAMLStore)(nil)
 // TODO: make flush configurable
 const flushInterval = 30 * time.Second
 
+// Option is a functional option for configuring YAMLStore.
+type Option func(*options)
+
+type options struct {
+	autoHitCounting bool
+}
+
+// WithAutoHitCounting controls whether queries automatically increment HitCount and LastHit.
+// Enabled by default; pass false to disable.
+func WithAutoHitCounting(enabled bool) Option {
+	return func(o *options) {
+		o.autoHitCounting = enabled
+	}
+}
+
 // YAMLStore holds one or more scope directories, each containing one YAML file per category.
 //
 // Example layout:
@@ -48,9 +64,11 @@ type YAMLStore struct {
 	// data maps scope -> category -> file
 	data map[store.Scope]map[string]*file
 	// dirty maps scope -> category -> needs flush
-	dirty  map[store.Scope]map[string]bool
-	done   chan struct{}
-	logger *slog.Logger
+	dirty           map[store.Scope]map[string]bool
+	autoHitCounting bool
+	done            chan struct{}
+	logger          *slog.Logger
+	closed          bool
 }
 
 // New creates a YAMLStore. Call with a mapping of scope names to directory paths.
@@ -63,16 +81,24 @@ type YAMLStore struct {
 //	    "global":    "~/.mnemonic/global/",
 //	    "team:acme": "~/.mnemonic/teams/acme/",
 //	}, logger)
-func New(scopeDirs map[store.Scope]string, logger *slog.Logger) (*YAMLStore, error) {
+func New(scopeDirs map[store.Scope]string, logger *slog.Logger, opts ...Option) (*YAMLStore, error) {
+	o := &options{
+		autoHitCounting: true, // enabled by default
+	}
+	for _, opt := range opts {
+		opt(o)
+	}
+
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	s := &YAMLStore{
-		dirs:   scopeDirs,
-		data:   make(map[store.Scope]map[string]*file),
-		dirty:  make(map[store.Scope]map[string]bool),
-		done:   make(chan struct{}),
-		logger: logger,
+		dirs:            scopeDirs,
+		data:            make(map[store.Scope]map[string]*file),
+		dirty:           make(map[store.Scope]map[string]bool),
+		autoHitCounting: o.autoHitCounting,
+		done:            make(chan struct{}),
+		logger:          logger,
 	}
 
 	for scope, dir := range scopeDirs {
@@ -100,6 +126,10 @@ func (s *YAMLStore) flushLoop() {
 
 // Close stops the background flush goroutine and persists any dirty categories.
 func (s *YAMLStore) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
 	close(s.done)
 	return s.flush()
 }
@@ -109,7 +139,7 @@ func (s *YAMLStore) All(scopes []store.Scope) ([]store.Entry, error) {
 	defer s.mu.Unlock()
 	entries := s.allEntries(s.scopesForQuery(scopes))
 	sortByWeightedScore(entries)
-	s.markHits(time.Now(), entries)
+	s.markHits(entries)
 	return entries, nil
 }
 
@@ -156,7 +186,7 @@ func (s *YAMLStore) AllByCategory(category string, topK int, scopes []store.Scop
 	if topK > 0 && len(candidates) > topK {
 		candidates = candidates[:topK]
 	}
-	s.markHits(time.Now(), candidates)
+	s.markHits(candidates)
 	return candidates, nil
 }
 
@@ -182,7 +212,7 @@ func (s *YAMLStore) QueryByCategory(category, query string, topK int, scopes []s
 	if topK > 0 && len(candidates) > topK {
 		candidates = candidates[:topK]
 	}
-	s.markHits(time.Now(), candidates)
+	s.markHits(candidates)
 	return candidates, nil
 }
 
@@ -206,7 +236,7 @@ func (s *YAMLStore) Query(category string, tags []string) ([]store.Entry, error)
 
 	sortByWeightedScore(hits)
 
-	s.markHits(time.Now(), hits)
+	s.markHits(hits)
 	return hits, nil
 }
 
@@ -296,11 +326,11 @@ func (s *YAMLStore) Promote(id string, targetScope store.Scope) error {
 }
 
 // markHits increments HitCount and sets LastHit for the entries in s.data that match the given slice.
-// Caller must hold write lock.
-func (s *YAMLStore) markHits(now time.Time, entries []store.Entry) {
-	if len(entries) == 0 {
+func (s *YAMLStore) markHits(entries []store.Entry) {
+	if !s.autoHitCounting || len(entries) == 0 {
 		return
 	}
+	now := time.Now()
 	ids := make(map[string]struct{}, len(entries))
 	for _, e := range entries {
 		ids[e.ID] = struct{}{}
@@ -343,8 +373,10 @@ func (s *YAMLStore) Score(id string, delta float64) error {
 			for idx, entry := range f.Entries {
 				if entry.ID == id {
 					f.Entries[idx].Score = math.Max(0, entry.Score+delta)
-					f.Entries[idx].HitCount++
-					f.Entries[idx].LastHit = time.Now()
+					if s.autoHitCounting {
+						f.Entries[idx].HitCount++
+						f.Entries[idx].LastHit = time.Now()
+					}
 					return s.persist(scope, category)
 				}
 			}
@@ -427,17 +459,25 @@ func (s *YAMLStore) persist(scope store.Scope, category string) error {
 
 // scopesForQuery resolves which scopes to query.
 func (s *YAMLStore) scopesForQuery(requested []store.Scope) []store.Scope {
-	if len(requested) == 0 {
-		return slices.Collect(maps.Keys(s.dirs))
+	if len(requested) != 0 {
+		return requested
 	}
-	return requested
+	keys := slices.Collect(maps.Keys(s.dirs))
+	slices.Sort(keys)
+	return keys
 }
 
 // allEntries returns all entries from all category files in the requested scopes (caller must hold lock).
 func (s *YAMLStore) allEntries(scopes []store.Scope) []store.Entry {
 	var out []store.Entry
 	for _, sc := range scopes {
-		for _, f := range s.data[sc] {
+		categories := make([]string, 0, len(s.data[sc]))
+		for cat := range s.data[sc] {
+			categories = append(categories, cat)
+		}
+		sort.Strings(categories)
+		for _, cat := range categories {
+			f := s.data[sc][cat]
 			if f != nil {
 				out = append(out, f.Entries...)
 			}
@@ -488,8 +528,15 @@ func keywordMatch(e store.Entry, terms []string) bool {
 }
 
 func sortByWeightedScore(entries []store.Entry) {
-	sort.Slice(entries, func(i, j int) bool {
-		return weightedScore(entries[i]) > weightedScore(entries[j])
+	slices.SortStableFunc(entries, func(a, b store.Entry) int {
+		sa, sb := weightedScore(a), weightedScore(b)
+		// use epsilon to compare because floats are annoying
+		if math.Abs(sa-sb) < 1e-10 {
+			// basically, zero
+			return strings.Compare(a.ID, b.ID)
+		}
+		// sort descending (higher scores first)
+		return cmp.Compare(sb, sa)
 	})
 }
 
