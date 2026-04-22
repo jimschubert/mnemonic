@@ -26,6 +26,7 @@ var CLI struct {
 	Stop    StopCmd          `cmd:"" help:"Send a shutdown request to a running daemon"`
 	Embed   EmbedCmd         `cmd:"" help:"Fetch embeddings and build the HNSW index"`
 	Lint    LintCmd          `cmd:"" help:"Analyze memory store for redundancy and resolve interactively"`
+	Store   StoreCmd         `cmd:"" help:"Interact with the memory store over unix socket (daemon must be running)"`
 	Version kong.VersionFlag `short:"v" help:"Print version information"`
 }
 
