@@ -12,8 +12,9 @@ import (
 )
 
 type StoreCmd struct {
-	Query QueryCmd `cmd:"" help:"Query the memory store"`
-	Add   AddCmd   `cmd:"" help:"Add an entry to the memory store"`
+	Query     QueryCmd     `cmd:"" help:"Query the memory store"`
+	Add       AddCmd       `cmd:"" help:"Add an entry to the memory store"`
+	ListHeads ListHeadsCmd `cmd:"" help:"List all memory heads in the store"`
 }
 
 //goland:noinspection GoUnhandledErrorResult

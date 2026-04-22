@@ -28,6 +28,6 @@ func (c *AddCmd) Run(logger *slog.Logger, conf config.Config) error {
 	if err != nil {
 		return fmt.Errorf("adding entry to daemon: %w (is it started?)", err)
 	}
-	logger.Info("Entry added successfully")
+	fmt.Println("Entry added successfully")
 	return nil
 }
