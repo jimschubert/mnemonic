@@ -13,6 +13,7 @@ import (
 
 type StoreCmd struct {
 	Query QueryCmd `cmd:"" help:"Query the memory store"`
+	Add   AddCmd   `cmd:"" help:"Add an entry to the memory store"`
 }
 
 //goland:noinspection GoUnhandledErrorResult
@@ -45,5 +46,8 @@ func socketSend(conf config.Config, tool string, payload map[string]any) (map[st
 		return nil, fmt.Errorf("calling query tool: %w", err)
 	}
 
+	if result.StructuredContent == nil {
+		return nil, nil
+	}
 	return result.StructuredContent.(map[string]any), nil
 }

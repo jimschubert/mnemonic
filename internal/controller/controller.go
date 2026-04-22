@@ -209,6 +209,7 @@ func (mc *MemoryController) Upsert(entry *store.Entry) error {
 	results, err := mc.indexer.Search(vec, 3)
 	mc.indexMu.RUnlock()
 	if err != nil {
+		mc.logger.Warn("index search error during upsert; skipping deduplication", "err", err)
 		return mc.doUpsert(entry)
 	}
 
