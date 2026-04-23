@@ -13,5 +13,4 @@ var (
 			Padding(0, 1).
 			Width(80)
 	simStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Bold(true)
-	keyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
 )
