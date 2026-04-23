@@ -4,13 +4,74 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/controller"
 	"github.com/jimschubert/mnemonic/internal/lint"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 )
+
+// lintKeyMap defines a set of keybindings. To work for help it must satisfy
+// key.Map. It could also very easily be a map[string]key.Binding.
+type lintKeyMap struct {
+	MergeA   key.Binding
+	MergeB   key.Binding
+	KeepBoth key.Binding
+	DeleteA  key.Binding
+	DeleteB  key.Binding
+	Help     key.Binding
+	Quit     key.Binding
+}
+
+// ShortHelp returns keybindings to be shown in the mini help view. It's part
+// of the key.Map interface.
+func (k lintKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.MergeA, k.MergeB, k.KeepBoth, k.DeleteA, k.DeleteB, k.Quit}
+}
+
+// FullHelp returns keybindings for the expanded help view. It's part of the
+// key.Map interface.
+func (k lintKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.MergeA, k.MergeB, k.KeepBoth, k.DeleteA, k.DeleteB}, // first column
+		{k.Help, k.Quit}, // second column
+	}
+}
+
+var lintKeys = lintKeyMap{
+	MergeA: key.NewBinding(
+		key.WithKeys("m", "right"),
+		key.WithHelp("m/→", "merge A → B"),
+	),
+	MergeB: key.NewBinding(
+		key.WithKeys("n", "left"),
+		key.WithHelp("n/←", "merge B → A"),
+	),
+	DeleteA: key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", "del A"),
+	),
+	DeleteB: key.NewBinding(
+		key.WithKeys("f"),
+		key.WithHelp("f", "del B"),
+	),
+	KeepBoth: key.NewBinding(
+		key.WithKeys("k"),
+		key.WithHelp("k", "keep A+B"),
+	),
+	Help: key.NewBinding(
+		key.WithKeys("?"),
+		key.WithHelp("?", "toggle help"),
+	),
+	Quit: key.NewBinding(
+		key.WithKeys("q", "esc", "ctrl+c"),
+		key.WithHelp("q", "quit"),
+	),
+}
 
 // LintCmd provides an interactive TUI to resolve memory health issues.
 type LintCmd struct {
@@ -68,9 +129,13 @@ func (c *LintCmd) Run(logger *slog.Logger, conf config.Config) error {
 }
 
 type lintModel struct {
-	actions  []lint.Action
-	index    int
-	ctrl     *controller.MemoryController
+	actions      []lint.Action
+	index        int
+	ctrl         *controller.MemoryController
+	keys         lintKeyMap
+	help         help.Model
+	showFullHelp bool
+
 	err      error
 	finished bool
 }
@@ -79,6 +144,8 @@ func newLintModel(actions []lint.Action, ctrl *controller.MemoryController) lint
 	return lintModel{
 		actions: actions,
 		ctrl:    ctrl,
+		keys:    lintKeys,
+		help:    help.New(),
 	}
 }
 
@@ -89,38 +156,35 @@ func (m lintModel) Init() tea.Cmd {
 func (m lintModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
-		case "k", " ":
-			// keep
+		case key.Matches(msg, m.keys.Help):
+			m.showFullHelp = !m.showFullHelp
+		case key.Matches(msg, m.keys.KeepBoth):
 			m.index++
-		case "m":
-			// merge A into B
+		case key.Matches(msg, m.keys.MergeA):
 			action := m.actions[m.index]
 			if err := m.ctrl.Merge(action.Right.ID, action.Left.ID); err != nil {
 				m.err = err
 				return m, tea.Quit
 			}
 			m.index++
-		case "n":
-			// merge B into A
+		case key.Matches(msg, m.keys.MergeB):
 			action := m.actions[m.index]
 			if err := m.ctrl.Merge(action.Left.ID, action.Right.ID); err != nil {
 				m.err = err
 				return m, tea.Quit
 			}
 			m.index++
-		case "f":
-			// delete B
+		case key.Matches(msg, m.keys.DeleteB):
 			action := m.actions[m.index]
 			if err := m.ctrl.Delete(action.Right.ID); err != nil {
 				m.err = err
 				return m, tea.Quit
 			}
 			m.index++
-		case "d":
-			// delete A
+		case key.Matches(msg, m.keys.DeleteA):
 			action := m.actions[m.index]
 			if err := m.ctrl.Delete(action.Left.ID); err != nil {
 				m.err = err
@@ -144,12 +208,12 @@ func (m lintModel) truncateTo(s string, n int) string {
 	return s[:n] + "..."
 }
 
-func (m lintModel) View() string {
+func (m lintModel) View() tea.View {
 	if m.err != nil {
-		return fmt.Sprintf("Error: %v\n", m.err)
+		return tea.NewView(fmt.Sprintf("Error: %v\n", m.err))
 	}
 	if m.finished {
-		return "Linting complete!\n"
+		return tea.NewView("Linting complete!\n")
 	}
 
 	action := m.actions[m.index]
@@ -167,12 +231,17 @@ func (m lintModel) View() string {
 
 	s += fmt.Sprintf("Similarity Score: %s\n\n", simStyle.Render(fmt.Sprintf("%.2f%%", action.Similarity*100)))
 
-	s += keyStyle.Render("[m]") + " merge A into B | " +
-		keyStyle.Render("[n]") + " merge B into A | " +
-		keyStyle.Render("[d]") + " delete A | " +
-		keyStyle.Render("[f]") + " delete B | " +
-		keyStyle.Render("[k]") + " keep both | " +
-		keyStyle.Render("[q]") + " quit\n"
+	var helpView string
+	if m.showFullHelp {
+		helpView = m.help.FullHelpView(m.keys.FullHelp())
+	} else {
+		helpView = m.help.ShortHelpView(m.keys.ShortHelp())
+	}
 
-	return s
+	height := 8 - strings.Count(s, "\n") - strings.Count(helpView, "\n")
+	if height < 0 {
+		height = 1
+	}
+
+	return tea.NewView(s + strings.Repeat("\n", height) + helpView)
 }
