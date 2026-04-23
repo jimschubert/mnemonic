@@ -128,6 +128,24 @@ mnemonic embed
 
 If embeddings are unavailable, `mnemonic` falls back to category and keyword search.
 
+### Keeping the store tidy
+
+Use `mnemonic lint` to analyze your memory store for any similarities which need to be merged/deleted (requires embeddings):
+
+``` sh
+# Analyze with default 90% similarity threshold
+mnemonic lint
+
+# Use a lower threshold to catch more potential duplicates
+mnemonic lint --threshold 0.85
+```
+
+This is an interactive command allowing you to preview and merge/delete entries.
+
+>[!NOTE]
+> The index uses approximate nearest neighbor (ANN) search, so it may not return all similar entries _all_ the time.
+> That is, you might run `mnemonic lint` ten times and have fewer entries 2-3 of those times.
+
 ## MCP Tools
 
 `mnemonic` exposes four MCP tools:
@@ -187,6 +205,10 @@ Example `mnemonic_add` input:
     * You can start `mnemonic stdio` separately; it knows what to do.
 * `mnemonic stop` asks the running daemon to shut down cleanly.
     * To avoid stale sessions and errors, any open `stdio` processes will detect the shutdown and exit.
+
+The MCP server is hosted over unix socket by default with an optional HTTP server. The unix socket is a streaming JSON-RPC
+server which is accessible easily using the MCP SDK. See `socketSend` in [store.go](./cmd/mnemonic/store.go) for an 
+example of how to interact with the server programatically.
 
 ### Storage model
 
@@ -254,15 +276,37 @@ mnemonic --help
 | `mnemonic stdio`  | Serve MCP over stdio and auto-start the daemon if needed |
 | `mnemonic server` | Start the HTTP MCP server and backing daemon             |
 | `mnemonic embed`  | Fetch embeddings and build or refresh the HNSW index     |
+| `mnemonic lint`   | Analyze memory store for redundancy and resolve issues interactively (requires embeddings) |
+| `mnemonic store`  | Interact with the memory store directly (daemon must be running)               |
 | `mnemonic stop`   | Request shutdown of the running daemon                   |
+
+Run `mnemonic <command> --help` for options or subcommands.
 
 ### Useful examples
 
 ``` sh
-mnemonic stdio
+# Start the MCP server (default, or explicitly with stdio)
 mnemonic server --server-addr localhost:9999
+mnemonic stdio
+
+# Start the MCP server with additional team scopes
 mnemonic server --team /shared/acme --team /shared/platform
+
+# Manage embeddings and index
+mnemonic embed
+# Or, if your index gets corrupted (e.g. changing embedding model and/or dimensions)
 mnemonic embed --force
+
+# Clean up your memory store (merge/delete)
+mnemonic lint --threshold 0.85
+
+# Interact with the store outside of an agent (daemon must be running)
+mnemonic store query --query "Go error handling" --category syntax
+mnemonic store add --content "Example pattern" --category syntax --tags go,error
+mnemonic store list-heads
+mnemonic store reinforce --id go-error-wrapping --delta 0.1
+
+# Stop the server and daemon
 mnemonic stop
 ```
 
