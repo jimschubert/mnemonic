@@ -13,15 +13,20 @@ import (
 // It uses a TextHandler if stdout is a terminal, and a JSONHandler otherwise.
 // All logging is directed to os.Stdout to keep stdout clean for MCP stdio transport.
 func New(level slog.Leveler) *slog.Logger {
+	return NewWithWriter(level, os.Stdout)
+}
+
+// NewWithWriter is like New but allows specifying the output writer, which is useful for testing or stdio output.
+func NewWithWriter(level slog.Leveler, writer *os.File) *slog.Logger {
 	opts := &slog.HandlerOptions{
 		Level: level,
 	}
 
 	var handler slog.Handler
-	if term.IsTerminal(int(os.Stdout.Fd())) {
-		handler = slog.NewTextHandler(os.Stdout, opts)
+	if term.IsTerminal(int(writer.Fd())) {
+		handler = slog.NewTextHandler(writer, opts)
 	} else {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
+		handler = slog.NewJSONHandler(writer, opts)
 	}
 
 	return slog.New(handler)
