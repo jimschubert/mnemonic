@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -167,22 +169,25 @@ func (s *Server) handleQuery(_ context.Context, _ *mcp.CallToolRequest, input Qu
 	if topK <= 0 {
 		topK = 5
 	}
+	categories, err := normalizeCategories(input.Category, input.Categories)
+	if err != nil {
+		return nil, QueryOutput{}, err
+	}
 	scopes := make([]store.Scope, len(input.Scopes))
 	for i, sc := range input.Scopes {
 		scopes[i] = store.Scope(sc)
 	}
 
 	var entries []store.Entry
-	var err error
 
-	s.logger.Debug("handleQuery", "query", input.Query, "top_k", topK, "scopes", scopes)
+	s.logger.Debug("handleQuery", "query", input.Query, "top_k", topK, "categories", categories, "scopes", scopes)
 
 	// try semantic search first when a query is provided
 	// this initial query is expected to be maximum 5-10 milliseconds via in-memory index.
 	if input.Query != "" {
 		if ss, ok := s.store.(controller.SemanticSearcher); ok {
-			s.logger.Info("performing semantic search", "query", input.Query, "top_k", topK, "scopes", scopes)
-			entries, err = ss.SemanticSearch(input.Query, topK, scopes)
+			s.logger.Info("performing semantic search", "query", input.Query, "top_k", topK, "categories", categories, "scopes", scopes)
+			entries, err = ss.SemanticSearch(input.Query, topK, scopes, categories)
 			if err != nil {
 				s.logger.Warn("semantic search failed, falling back to keyword", "err", err)
 				entries = nil
@@ -192,8 +197,15 @@ func (s *Server) handleQuery(_ context.Context, _ *mcp.CallToolRequest, input Qu
 		}
 	}
 
-	// fall back to keyword search
-	if len(entries) == 0 {
+	// fall back to keyword/category queries. When semantic search returns some
+	// results, use keyword search only to backfill to topK without duplicating.
+	if len(categories) > 0 {
+		fallbackEntries, err := s.queryByCategories(input.Query, categories, topK, scopes)
+		if err != nil {
+			return nil, QueryOutput{}, err
+		}
+		entries = fillWithAdditional(entries, fallbackEntries, topK)
+	} else if len(entries) == 0 {
 		if input.Category != "" {
 			entries, err = s.store.QueryByCategory(input.Category, input.Query, topK, scopes)
 		} else {
@@ -210,13 +222,107 @@ func (s *Server) handleQuery(_ context.Context, _ *mcp.CallToolRequest, input Qu
 	results := make([]QueryResult, len(entries))
 	for i, e := range entries {
 		results[i] = QueryResult{
+			ID:       e.ID,
 			Content:  e.Content,
 			Category: e.Category,
 			Tags:     e.Tags,
 			Scope:    e.Scope,
+			Source:   e.Source,
 		}
 	}
 	return nil, QueryOutput{Entries: results}, nil
+}
+
+func normalizeCategories(category string, categories []string) ([]string, error) {
+	combined := make([]string, 0, len(categories)+1)
+	if category != "" {
+		combined = append(combined, category)
+	}
+	combined = append(combined, categories...)
+
+	if len(combined) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]bool, len(combined))
+	filtered := make([]string, 0, len(combined))
+	for _, c := range combined {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if !store.IsAllowedCategory(c) {
+			return nil, fmt.Errorf("category %q is not allowed; must be one of %v", c, store.AllowedCategories())
+		}
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
+		filtered = append(filtered, c)
+	}
+
+	return filtered, nil
+}
+
+func (s *Server) queryByCategories(query string, categories []string, topK int, scopes []store.Scope) ([]store.Entry, error) {
+	if len(categories) == 0 {
+		return nil, nil
+	}
+
+	merged := make([]store.Entry, 0, topK)
+	seen := make(map[string]bool)
+	for _, category := range categories {
+		var (
+			entries []store.Entry
+			err     error
+		)
+		if query != "" {
+			entries, err = s.store.QueryByCategory(category, query, topK, scopes)
+		} else {
+			entries, err = s.store.AllByCategory(category, topK, scopes)
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if seen[entry.ID] {
+				continue
+			}
+			seen[entry.ID] = true
+			merged = append(merged, entry)
+		}
+	}
+
+	store.SortByWeightedScore(merged)
+	if topK > 0 && len(merged) > topK {
+		merged = merged[:topK]
+	}
+	return merged, nil
+}
+
+// fillWithAdditional adds additional entries to existing up to topK, with dedupe by ID.
+func fillWithAdditional(existing []store.Entry, additional []store.Entry, topK int) []store.Entry {
+	if topK > 0 && len(existing) >= topK {
+		return existing[:topK]
+	}
+
+	seen := make(map[string]bool, len(existing)+len(additional))
+	merged := slices.Clone(existing)
+	for _, entry := range existing {
+		seen[entry.ID] = true
+	}
+	for _, entry := range additional {
+		if seen[entry.ID] {
+			// skip duplicates
+			continue
+		}
+		seen[entry.ID] = true
+		merged = append(merged, entry)
+		if topK > 0 && len(merged) >= topK {
+			break
+		}
+	}
+	return merged
 }
 
 func (s *Server) handleAdd(_ context.Context, _ *mcp.CallToolRequest, input AddInput) (*mcp.CallToolResult, AddOutput, error) {

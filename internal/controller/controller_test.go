@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/jimschubert/mnemonic/internal/config"
@@ -470,7 +471,7 @@ func TestSemanticSearch_ReturnsResults(t *testing.T) {
 	assert.NoError(t, err)
 	defer mc.Close() // nolint:errcheck
 
-	results, err := mc.SemanticSearch("go patterns", 5, nil)
+	results, err := mc.SemanticSearch("go patterns", 5, nil, nil)
 	assert.NoError(t, err)
 	assert.True(t, len(results) > 0)
 }
@@ -493,7 +494,7 @@ func TestSemanticSearch_UnavailableReturnsNil(t *testing.T) {
 	assert.NoError(t, err)
 	defer mc.Close() // nolint:errcheck
 
-	results, err := mc.SemanticSearch("anything", 5, nil)
+	results, err := mc.SemanticSearch("anything", 5, nil, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(results))
 }
@@ -519,11 +520,75 @@ func TestSemanticSearch_FiltersByScope(t *testing.T) {
 	assert.NoError(t, err)
 	defer mc.Close() // nolint:errcheck
 
-	results, err := mc.SemanticSearch("entry", 5, []store.Scope{"project"})
+	results, err := mc.SemanticSearch("entry", 5, []store.Scope{"project"}, nil)
 	assert.NoError(t, err)
 	for _, e := range results {
 		assert.Equal(t, "project", e.Scope)
 	}
+}
+
+//goland:noinspection GoUnhandledErrorResult
+func TestSemanticSearch_FiltersByCategory(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	ms := newMockStore()
+	ms.entries["syn"] = &store.Entry{ID: "syn", Content: "syntax entry", Category: "syntax", Scope: "global", Score: 1, Created: time.Now()}
+	ms.entries["sec"] = &store.Entry{ID: "sec", Content: "security entry", Category: "security", Scope: "global", Score: 1, Created: time.Now()}
+
+	idx := newMockIndexer()
+	idx.results = []index.SearchResult{
+		{ID: "syn", Distance: 0.01},
+		{ID: "sec", Distance: 0.50},
+	}
+	emb := &mockEmbedder{available: true, dim: 4}
+
+	mc, err := New(testConfig(),
+		WithStore(ms),
+		WithIndexer(idx),
+		WithEmbedder(emb),
+		WithMnemonicDir(dir),
+	)
+	assert.NoError(t, err)
+	defer mc.Close() // nolint:errcheck
+
+	results, err := mc.SemanticSearch("entry", 5, nil, []string{"security"})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(results))
+	assert.Equal(t, "sec", results[0].ID)
+}
+
+//goland:noinspection GoUnhandledErrorResult
+func TestSemanticSearch_PrefersHigherWeightedScoreOnDistanceTie(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	now := time.Now()
+
+	ms := newMockStore()
+	ms.entries["low"] = &store.Entry{ID: "low", Content: "tie entry one", Category: "domain", Scope: "global", Score: 1, Created: now}
+	ms.entries["high"] = &store.Entry{ID: "high", Content: "tie entry two", Category: "domain", Scope: "global", Score: 3, Created: now}
+
+	idx := newMockIndexer()
+	idx.results = []index.SearchResult{
+		{ID: "low", Distance: 0.10},
+		{ID: "high", Distance: 0.10},
+	}
+	emb := &mockEmbedder{available: true, dim: 4}
+
+	mc, err := New(testConfig(),
+		WithStore(ms),
+		WithIndexer(idx),
+		WithEmbedder(emb),
+		WithMnemonicDir(dir),
+	)
+	assert.NoError(t, err)
+	defer mc.Close() // nolint:errcheck
+
+	results, err := mc.SemanticSearch("tie", 5, nil, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(results))
+	assert.Equal(t, "high", results[0].ID)
+	assert.Equal(t, "low", results[1].ID)
 }
 
 //goland:noinspection GoUnhandledErrorResult

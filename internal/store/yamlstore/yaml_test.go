@@ -1160,7 +1160,7 @@ func TestSortByWeightedScore(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sortByWeightedScore(tt.input)
+			store.SortByWeightedScore(tt.input)
 			gotIDs := make([]string, len(tt.input))
 			for i, e := range tt.input {
 				gotIDs[i] = e.ID
@@ -1174,13 +1174,13 @@ func TestWeightedScore(t *testing.T) {
 	t.Run("recent hit has higher score than old hit", func(t *testing.T) {
 		recent := store.Entry{Score: 1.0, LastHit: time.Now()}
 		old := store.Entry{Score: 1.0, LastHit: time.Now().Add(-365 * 24 * time.Hour)}
-		assert.True(t, weightedScore(recent) > weightedScore(old))
+		assert.True(t, store.WeightedScore(recent) > store.WeightedScore(old))
 	})
 
 	t.Run("higher base score wins with same recency", func(t *testing.T) {
 		t1 := time.Now().Add(-24 * time.Hour)
 		high := store.Entry{Score: 10.0, LastHit: t1}
 		low := store.Entry{Score: 1.0, LastHit: t1}
-		assert.True(t, weightedScore(high) > weightedScore(low))
+		assert.True(t, store.WeightedScore(high) > store.WeightedScore(low))
 	})
 }

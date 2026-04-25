@@ -3,10 +3,11 @@ package server
 import "github.com/jimschubert/mnemonic/internal/store"
 
 type QueryInput struct {
-	Query    string   `json:"query"              jsonschema:"describe the current task or question to retrieve relevant lessons; after using any applicable results, call mnemonic_reinforce in the same task"`
-	Category string   `json:"category,omitempty" jsonschema:"limit results to a specific category: avoidance, security, syntax, architecture, or domain"`
-	TopK     int      `json:"top_k,omitempty"    jsonschema:"maximum number of entries to return (default: 5)"`
-	Scopes   []string `json:"scopes,omitempty"   jsonschema:"limit to specific scopes: global, team, or project — empty returns all scopes"`
+	Query      string   `json:"query"                 jsonschema:"describe the current task or question to retrieve relevant lessons; after using any applicable results, call mnemonic_reinforce in the same task"`
+	Category   string   `json:"category,omitempty"    jsonschema:"single-category filter. Allowed values: avoidance, security, syntax, architecture, or domain"`
+	Categories []string `json:"categories,omitempty"  jsonschema:"preferred category filters. Allowed values: avoidance, security, syntax, architecture, or domain"`
+	TopK       int      `json:"top_k,omitempty"       jsonschema:"overall maximum number of entries to return across all requested categories (default: 5)"`
+	Scopes     []string `json:"scopes,omitempty"      jsonschema:"limit to specific scopes: global, team, or project — empty returns all scopes"`
 }
 
 type QueryResult struct {

@@ -38,19 +38,33 @@ func TestCompacterCompact_UsesChatCompletionsRequest(t *testing.T) {
 		expectedOutput      string
 	}{
 		{
-			name:                "sends system and user messages",
-			cavemanMode:         CavemanOff,
-			input:               "original memory",
-			responseBody:        map[string]any{"choices": []any{map[string]any{"index": 0, "finish_reason": "stop", "message": map[string]any{"role": "assistant", "content": "compacted memory"}}}},
+			name:        "sends system and user messages",
+			cavemanMode: CavemanOff,
+			input:       "original memory",
+			responseBody: map[string]any{
+				"choices": []any{
+					map[string]any{
+						"index": 0, "finish_reason": "stop",
+						"message": map[string]any{"role": "assistant", "content": "compacted memory"},
+					},
+				},
+			},
 			expectedSystem:      "Please shorten the following text to reduce token usage, preserving all key information and details and making zero modification to any code blocks:\n\n",
 			expectedUserContent: "Text to compact:\noriginal memory",
 			expectedOutput:      "compacted memory",
 		},
 		{
-			name:                "supports caveman prompt as system message",
-			cavemanMode:         CavemanLite,
-			input:               "original memory",
-			responseBody:        map[string]any{"choices": []any{map[string]any{"index": 0, "finish_reason": "stop", "message": map[string]any{"role": "assistant", "content": "compacted memory"}}}},
+			name:        "supports caveman prompt as system message",
+			cavemanMode: CavemanLite,
+			input:       "original memory",
+			responseBody: map[string]any{
+				"choices": []any{
+					map[string]any{
+						"index": 0, "finish_reason": "stop",
+						"message": map[string]any{"role": "assistant", "content": "compacted memory"},
+					},
+				},
+			},
 			expectedSystem:      New(nil, "", "", "", WithCavemanMode(CavemanLite)).getPrompt(),
 			expectedUserContent: "Text to compact:\noriginal memory",
 			expectedOutput:      "compacted memory",
@@ -96,18 +110,26 @@ func TestCompacterCompact_ChoosesMostSimilarChatChoice(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 			"choices": []any{
-				map[string]any{"index": 0, "finish_reason": "stop", "message": map[string]any{"role": "assistant", "content": "less similar"}},
-				map[string]any{"index": 1, "finish_reason": "stop", "message": map[string]any{"role": "assistant", "content": "most similar"}},
+				map[string]any{
+					"index": 0, "finish_reason": "stop",
+					"message": map[string]any{"role": "assistant", "content": "less similar"},
+				},
+				map[string]any{
+					"index": 1, "finish_reason": "stop",
+					"message": map[string]any{"role": "assistant", "content": "most similar"},
+				},
 			},
 		}))
 	}))
 	defer server.Close()
 
-	compacter := New(&testEmbedder{vectors: map[string][]float32{
-		"original":     {1, 0},
-		"less similar": {0, 1},
-		"most similar": {1, 0},
-	}}, server.URL, "test-key", "test-model")
+	compacter := New(&testEmbedder{
+		vectors: map[string][]float32{
+			"original":     {1, 0},
+			"less similar": {0, 1},
+			"most similar": {1, 0},
+		},
+	}, server.URL, "test-key", "test-model")
 
 	result, err := compacter.Compact("original")
 	assert.NoError(t, err)
@@ -126,7 +148,10 @@ func TestCompacterCompact_ParsesChatMessageContentForms(t *testing.T) {
 			name: "content string",
 			responseBody: map[string]any{
 				"choices": []any{
-					map[string]any{"index": 0, "finish_reason": "stop", "message": map[string]any{"role": "assistant", "content": "string content"}},
+					map[string]any{
+						"index": 0, "finish_reason": "stop",
+						"message": map[string]any{"role": "assistant", "content": "string content"},
+					},
 				},
 			},
 			expectedOutput: "string content",
@@ -135,10 +160,14 @@ func TestCompacterCompact_ParsesChatMessageContentForms(t *testing.T) {
 			name: "content part array",
 			responseBody: map[string]any{
 				"choices": []any{
-					map[string]any{"index": 0, "finish_reason": "stop", "message": map[string]any{"role": "assistant", "content": []any{
-						map[string]any{"type": "text", "text": "part one"},
-						map[string]any{"type": "text", "text": " + part two"},
-					}}},
+					map[string]any{
+						"index": 0, "finish_reason": "stop", "message": map[string]any{
+							"role": "assistant", "content": []any{
+								map[string]any{"type": "text", "text": "part one"},
+								map[string]any{"type": "text", "text": " + part two"},
+							},
+						},
+					},
 				},
 			},
 			expectedOutput: "part one + part two",
@@ -178,4 +207,3 @@ func TestCompacterCompact_ParsesChatMessageContentForms(t *testing.T) {
 		})
 	}
 }
-

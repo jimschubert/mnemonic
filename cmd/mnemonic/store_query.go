@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/jimschubert/mnemonic/internal/config"
@@ -13,8 +14,8 @@ type QueryCmd struct {
 	SocketPath string   `short:"s" default:"${socket_path}" help:"Path to daemon socket" env:"MNEMONIC_SOCKET_PATH"`
 	Raw        bool     `help:"Output raw JSON response"`
 	NoMeta     bool     `help:"Exclude metadata from output (when --raw is not set)"`
-	Category   string   `short:"c" default:"syntax" enum:"avoidance,security,syntax,architecture,domain" help:"Limit results to a specific category: avoidance, security, syntax, architecture, or domain"`
-	TopK       int      `short:"t" default:"5" help:"TopK number of entries to return (default: 5)"`
+	Category   string   `short:"c" default:"syntax" help:"Limit results to one or more comma-separated categories: avoidance, security, syntax, architecture, or domain"`
+	TopK       int      `short:"t" default:"10" help:"Overall number of entries to return across requested categories (default: 10)"`
 	Scopes     []string `help:"Limit to specific scopes: global, team, or project — empty returns all scopes"`
 	Query      string   `arg:"" help:"Text to query for"`
 }
@@ -25,10 +26,14 @@ func (c *QueryCmd) Run(logger *slog.Logger, conf config.Config) error {
 	})
 
 	payload := map[string]any{
-		"query":    c.Query,
-		"category": c.Category,
-		"top_k":    c.TopK,
+		"query": c.Query,
+		"top_k": c.TopK,
 	}
+	categories := parseCSV(c.Category)
+	if len(categories) > 0 {
+		payload["categories"] = categories
+	}
+
 	if len(c.Scopes) > 0 {
 		payload["scopes"] = c.Scopes
 	}
@@ -92,4 +97,24 @@ func (c *QueryCmd) Run(logger *slog.Logger, conf config.Config) error {
 	}
 
 	return nil
+}
+
+func parseCSV(value string) []string {
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ' '
+	})
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		v := strings.ToLower(strings.TrimSpace(part))
+		if len(v) > 0 {
+			if slices.Contains(result, v) {
+				continue
+			}
+			result = append(result, v)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }

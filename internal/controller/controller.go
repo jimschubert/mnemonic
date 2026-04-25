@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +35,7 @@ var (
 // This is separate from store.Store because SemanticSearch is a responsibility of the embed.Embedder + index.Indexer
 // control structure, not necessarily every future store implementation.
 type SemanticSearcher interface {
-	SemanticSearch(query string, k int, scopes []store.Scope) ([]store.Entry, error)
+	SemanticSearch(query string, k int, scopes []store.Scope, categories []string) ([]store.Entry, error)
 }
 
 // MemoryController wraps a Store with optional semantic indexing via HNSW.
@@ -276,8 +278,9 @@ func (mc *MemoryController) Delete(id string) error {
 }
 
 // SemanticSearch embeds the query and returns the k nearest entries.
-// Returns nil when the embedder is unavailable.
-func (mc *MemoryController) SemanticSearch(query string, k int, scopes []store.Scope) ([]store.Entry, error) {
+// When categories are provided, semantic candidates category-limited so query filters apply consistently across semantic and keyword search.
+// Returns nil when embedder is not available, or an error if embedding or index search fails.
+func (mc *MemoryController) SemanticSearch(query string, k int, scopes []store.Scope, categories []string) ([]store.Entry, error) {
 	if !mc.embedder.Available() {
 		return nil, nil
 	}
@@ -287,9 +290,18 @@ func (mc *MemoryController) SemanticSearch(query string, k int, scopes []store.S
 		return nil, fmt.Errorf("embedding query: %w", err)
 	}
 
-	// k*2 to allow for filtering by scope (may result in <k results)
+	var searchK int
+	switch {
+	case k <= 0:
+		searchK = 10
+	case len(categories) > 0:
+		searchK = k * 4
+	default:
+		searchK = k * 2
+	}
+
 	mc.indexMu.RLock()
-	results, err := mc.indexer.Search(vec, k*2)
+	results, err := mc.indexer.Search(vec, searchK)
 	mc.indexMu.RUnlock()
 	if err != nil {
 		return nil, fmt.Errorf("index search: %w", err)
@@ -299,8 +311,17 @@ func (mc *MemoryController) SemanticSearch(query string, k int, scopes []store.S
 	for _, s := range scopes {
 		scopeSet[s.String()] = true
 	}
+	categorySet := make(map[string]bool, len(categories))
+	for _, category := range categories {
+		categorySet[category] = true
+	}
 
-	var entries []store.Entry
+	type semanticCandidate struct {
+		entry    store.Entry
+		distance float32
+	}
+
+	candidates := make([]semanticCandidate, 0, len(results))
 	for _, r := range results {
 		entry, err := mc.store.Get(r.ID)
 		if err != nil {
@@ -310,7 +331,26 @@ func (mc *MemoryController) SemanticSearch(query string, k int, scopes []store.S
 		if len(scopeSet) > 0 && !scopeSet[entry.Scope] {
 			continue
 		}
-		entries = append(entries, *entry)
+		if len(categorySet) > 0 && !categorySet[entry.Category] {
+			continue
+		}
+		candidates = append(candidates, semanticCandidate{entry: *entry, distance: r.Distance})
+	}
+
+	slices.SortStableFunc(candidates, func(a, b semanticCandidate) int {
+		if math.Abs(float64(a.distance-b.distance)) > 1e-10 {
+			return cmp.Compare(a.distance, b.distance)
+		}
+		aw, bw := store.WeightedScore(a.entry), store.WeightedScore(b.entry)
+		if math.Abs(aw-bw) > 1e-10 {
+			return cmp.Compare(bw, aw)
+		}
+		return strings.Compare(a.entry.ID, b.entry.ID)
+	})
+
+	var entries []store.Entry
+	for _, candidate := range candidates {
+		entries = append(entries, candidate.entry)
 		if len(entries) >= k {
 			break
 		}

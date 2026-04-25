@@ -159,7 +159,7 @@ This is an interactive command allowing you to preview and merge/delete entries.
 
 Typical flow:
 
-1. Query `avoidance` and `security` first.
+1. Query `avoidance` and `security` first, either separately or together.
 2. Query another category or a broader task description.
 3. Use the returned memories while doing the work.
 4. Store or reinforce anything worth keeping.
@@ -169,7 +169,10 @@ Example `mnemonic_query` input:
 ``` json
 {
   "query": "update GitHub workflows for Go 1.26 and verify pwn-request safety",
-  "category": "security",
+  "categories": [
+    "avoidance",
+    "security"
+  ],
   "top_k": 5,
   "scopes": [
     "project",
@@ -177,6 +180,9 @@ Example `mnemonic_query` input:
   ]
 }
 ```
+
+`category` is allowed for a single category, but `categories` is the preferred field for multi-category queries.
+`top_k` is an overall limit across the returned result set, so `top_k: 5` may return 3 `avoidance` and 2 `security` entries, for example.
 
 Example `mnemonic_add` input:
 
@@ -316,6 +322,7 @@ mnemonic lint --threshold 0.85
 
 # Interact with the store outside of an agent (daemon must be running)
 mnemonic store query --query "Go error handling" --category syntax
+mnemonic store query --query "workflow safety" --category avoidance,security
 mnemonic store add --content "Example pattern" --category syntax --tags go,error
 mnemonic store list-heads
 mnemonic store reinforce --id go-error-wrapping --delta 0.1

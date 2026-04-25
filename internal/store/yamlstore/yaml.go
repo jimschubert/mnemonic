@@ -1,7 +1,6 @@
 package yamlstore
 
 import (
-	"cmp"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -138,7 +137,7 @@ func (s *YAMLStore) All(scopes []store.Scope) ([]store.Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entries := s.allEntries(s.scopesForQuery(scopes))
-	sortByWeightedScore(entries)
+	store.SortByWeightedScore(entries)
 	s.markHits(entries)
 	return entries, nil
 }
@@ -182,7 +181,7 @@ func (s *YAMLStore) AllByCategory(category string, topK int, scopes []store.Scop
 			}
 		}
 	}
-	sortByWeightedScore(candidates)
+	store.SortByWeightedScore(candidates)
 	if topK > 0 && len(candidates) > topK {
 		candidates = candidates[:topK]
 	}
@@ -208,7 +207,7 @@ func (s *YAMLStore) QueryByCategory(category, query string, topK int, scopes []s
 			}
 		}
 	}
-	sortByWeightedScore(candidates)
+	store.SortByWeightedScore(candidates)
 	if topK > 0 && len(candidates) > topK {
 		candidates = candidates[:topK]
 	}
@@ -234,7 +233,7 @@ func (s *YAMLStore) Query(category string, tags []string) ([]store.Entry, error)
 		hits = append(hits, e)
 	}
 
-	sortByWeightedScore(hits)
+	store.SortByWeightedScore(hits)
 
 	s.markHits(hits)
 	return hits, nil
@@ -525,32 +524,6 @@ func keywordMatch(e store.Entry, terms []string) bool {
 		}
 	}
 	return false
-}
-
-func sortByWeightedScore(entries []store.Entry) {
-	slices.SortStableFunc(entries, func(a, b store.Entry) int {
-		sa, sb := weightedScore(a), weightedScore(b)
-		// use epsilon to compare because floats are annoying
-		if math.Abs(sa-sb) < 1e-10 {
-			// basically, zero
-			return strings.Compare(a.ID, b.ID)
-		}
-		// sort descending (higher scores first)
-		return cmp.Compare(sb, sa)
-	})
-}
-
-// weightedScore adds a recency bias to the entry's score. Recent hits increase the score, while old entries decay over time.
-// The half-life is ~14 days (ln(2) / 0.05). LastHit is used as the recency reference; Created is the fallback for
-// entries that have never been queried or reinforced.
-func weightedScore(e store.Entry) float64 {
-	ref := e.LastHit
-	if ref.IsZero() {
-		ref = e.Created
-	}
-	days := time.Since(ref).Hours() / 24
-	decay := math.Exp(-0.05 * days)
-	return e.Score * decay
 }
 
 func expandHome(path string) string {
