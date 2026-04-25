@@ -39,5 +39,5 @@ func ParseLevel(s string) slog.Level {
 // ForScope creates a logger for the given package scope, according to user config.
 // Falls back to conf.LogLevel (see config.Config#LogLevelFor).
 func ForScope(conf config.Config, scope string) *slog.Logger {
-	return New(ParseLevel(conf.LogLevelFor(scope)))
+	return New(ParseLevel(conf.LogLevelFor(scope))).WithGroup(scope)
 }

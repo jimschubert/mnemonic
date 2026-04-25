@@ -142,7 +142,7 @@ mnemonic lint --threshold 0.85
 
 This is an interactive command allowing you to preview and merge/delete entries.
 
->[!NOTE]
+> [!NOTE]
 > The index uses approximate nearest neighbor (ANN) search, so it may not return all similar entries _all_ the time.
 > That is, you might run `mnemonic lint` ten times and have fewer entries 2-3 of those times.
 
@@ -271,16 +271,30 @@ That means important memories stay visible, but stale memories naturally decay o
 mnemonic --help
 ```
 
-| Command           | Description                                              |
-|-------------------|----------------------------------------------------------|
-| `mnemonic stdio`  | Serve MCP over stdio and auto-start the daemon if needed |
-| `mnemonic server` | Start the HTTP MCP server and backing daemon             |
-| `mnemonic embed`  | Fetch embeddings and build or refresh the HNSW index     |
-| `mnemonic lint`   | Analyze memory store for redundancy and resolve issues interactively (requires embeddings) |
-| `mnemonic store`  | Interact with the memory store directly (daemon must be running)               |
-| `mnemonic stop`   | Request shutdown of the running daemon                   |
+| Command              | Description                                                                                |
+|----------------------|--------------------------------------------------------------------------------------------|
+| `mnemonic stdio`     | Serve MCP over stdio and auto-start the daemon if needed                                   |
+| `mnemonic server`    | Start the HTTP MCP server and backing daemon                                               |
+| `mnemonic embed`     | Fetch embeddings and build or refresh the HNSW index                                       |
+| `mnemonic lint`      | Analyze memory store for redundancy and resolve issues interactively (requires embeddings) |
+| `mnemonic store`     | Interact with the memory store directly (daemon must be running)                           |
+| `mnemonic stop`      | Request shutdown of the running daemon                                                     |
+| `mnemonic compact`   | Compact the text of all memories in the store to reduce token usage                        |
 
 Run `mnemonic <command> --help` for options or subcommands.
+
+> [!TIP]
+> `mnemonic compact` requires an OpenAI-compatible /chat/completions endpoint.
+> If you are using a Mac with a Silicon chip, you can expose the Apple Tahoe (and higher) 3B parameter LLM.
+> It's local, won't use your token quota, and may be faster than other locally hosted models for this task.
+> See https://apfel.franzai.com/ for more details and installation instructions.
+> 
+> Once installed, run `apfel --serve` and run `mnemonic compact` with these options:
+> ``` sh
+> mnemonic compact --base-url http://127.0.0.1:11434/v1 \
+>     --api-key abcd123 \
+>     --model apple-foundationmodel
+> ```
 
 ### Useful examples
 

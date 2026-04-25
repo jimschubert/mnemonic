@@ -27,6 +27,7 @@ var CLI struct {
 	Embed   EmbedCmd         `cmd:"" help:"Fetch embeddings and build the HNSW index"`
 	Lint    LintCmd          `cmd:"" help:"Analyze memory store for redundancy and resolve interactively"`
 	Store   StoreCmd         `cmd:"" help:"Interact with the memory store over unix socket (daemon must be running)"`
+	Compact CompactCmd       `cmd:"" help:"Compact the memory store by re-wording all items and rebuilding the index (DESTRUCTIVE! AI can make mistakes, backup before running)"`
 	Version kong.VersionFlag `short:"v" help:"Print version information"`
 }
 

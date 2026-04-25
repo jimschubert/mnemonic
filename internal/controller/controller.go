@@ -193,6 +193,11 @@ func (mc *MemoryController) doUpsert(entry *store.Entry) error {
 	return nil
 }
 
+// Save allows for re-save without all the embedding and deduplication logic of Upsert. DOES _NOT_ UPDATE INDEX.
+func (mc *MemoryController) Save(entry *store.Entry) error {
+	return mc.store.Upsert(entry)
+}
+
 func (mc *MemoryController) Upsert(entry *store.Entry) error {
 	if !mc.embedder.Available() {
 		return mc.doUpsert(entry)
@@ -213,11 +218,26 @@ func (mc *MemoryController) Upsert(entry *store.Entry) error {
 		return mc.doUpsert(entry)
 	}
 
+	entryScope := normalizedScope(entry.Scope)
 	for _, r := range results {
 		// TODO: make duplication threshold configurable?
 		if r.Distance < 0.05 {
 			existing, err := mc.store.Get(r.ID)
 			if err != nil {
+				continue
+			}
+
+			existingScope := normalizedScope(existing.Scope)
+			// NOTE: avoids saving the same entry.ID to different categories/scopes. Can be cleaned up later.
+			if existing.Category != entry.Category || existingScope != entryScope {
+				mc.logger.Debug("skipping dedup candidate from different category or scope",
+					"entry_id", entry.ID,
+					"candidate_id", existing.ID,
+					"entry_category", entry.Category,
+					"candidate_category", existing.Category,
+					"entry_scope", entryScope,
+					"candidate_scope", existingScope,
+				)
 				continue
 			}
 
@@ -238,6 +258,13 @@ func (mc *MemoryController) Upsert(entry *store.Entry) error {
 	}
 
 	return mc.doUpsert(entry)
+}
+
+func normalizedScope(scope string) string {
+	if scope == "" {
+		return store.ScopeGlobal.String()
+	}
+	return scope
 }
 
 func (mc *MemoryController) Delete(id string) error {
@@ -404,6 +431,10 @@ func (mc *MemoryController) loadIndex() error {
 	f, err := os.Open(mc.indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if len(mc.meta.Entries) > 0 {
+				mc.logger.Warn("index file missing; clearing stale metadata", "meta_entries", len(mc.meta.Entries), "path", mc.indexPath)
+				mc.meta = newMetadata()
+			}
 			return nil
 		}
 		return fmt.Errorf("opening index: %w", err)
@@ -507,10 +538,12 @@ func (mc *MemoryController) BuildIndexes(force bool) error {
 		texts[i] = e.Content
 	}
 
-	// TODO: review whether there's a limit to batch embedding size, maybe make configurable and chunk it.
 	vectors, err := mc.embedder.Embed(texts)
 	if err != nil {
 		return fmt.Errorf("batch embedding: %w", err)
+	}
+	if len(vectors) != len(toEmbed) {
+		return fmt.Errorf("batch embedding returned %d vectors for %d entries", len(vectors), len(toEmbed))
 	}
 
 	for i, e := range toEmbed {
