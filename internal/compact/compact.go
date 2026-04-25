@@ -188,7 +188,7 @@ func (c *Compacter) Compact(input string) (string, error) {
 	if err != nil {
 		// nbd just log, we'll just take the last choice instead of the most similar
 		c.logger.Warn("error embedding original input, skipping similarity comparison and returning last choice", "err", err)
-	} else if originalEmbedding != nil && len(originalEmbedding) > 0 {
+	} else if len(originalEmbedding) > 0 {
 		for _, thisChoice := range rr.Choices {
 			choiceText := thisChoice.Content()
 			embedding, err := c.embedder.EmbedSingle(choiceText)
