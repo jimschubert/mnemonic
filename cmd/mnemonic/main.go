@@ -15,8 +15,8 @@ import (
 
 var (
 	projectName = "mnemonic"
-	version     = "dev"
-	commit      = "unknown SHA"
+	version     = defaultVersionValue
+	commit      = defaultCommitValue
 )
 
 var CLI struct {
@@ -43,7 +43,7 @@ func main() {
 
 	vars := kong.Vars{}
 	maps.Copy(vars, conf.AsMap())
-	vars["version"] = fmt.Sprintf("%s (%s)", version, commit)
+	vars["version"] = resolvedVersionString()
 
 	ctx := kong.Parse(&CLI,
 		kong.Name(projectName),
