@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/jimschubert/mnemonic/internal/config"
@@ -31,7 +30,13 @@ func (c *StdioCmd) Run(_ *slog.Logger, conf config.Config) error {
 	// explicitly assign because conf.ApplyOverrides ignores empty strings
 	conf.ServerAddr = c.ServerAddr
 
-	extraEnv := c.daemonEnv()
+	extraEnv := daemonEnv(conf, daemonEnvOptions{
+		GlobalDir:         c.GlobalDir,
+		LocalDir:          c.LocalDir,
+		Team:              c.Team,
+		Mandatory:         c.Mandatory,
+		IncludeServerAddr: true,
+	})
 
 	if err := ensureDaemon(stdioLogger, conf, extraEnv); err != nil {
 		return fmt.Errorf("ensuring daemon: %w", err)
@@ -48,22 +53,4 @@ func (c *StdioCmd) Run(_ *slog.Logger, conf config.Config) error {
 
 	stdioLogger.Info("stdio bridge exited successfully")
 	return nil
-}
-
-// daemonEnv builds config via environment variables for running the daemon.
-func (c *StdioCmd) daemonEnv() []string {
-	env := []string{
-		"MNEMONIC_GLOBAL_DIR=" + c.GlobalDir,
-		"MNEMONIC_LOCAL_DIR=" + c.LocalDir,
-	}
-	if len(c.Team) > 0 {
-		env = append(env, "MNEMONIC_TEAM_DIRS="+strings.Join(c.Team, ","))
-	}
-	if len(c.Mandatory) > 0 {
-		env = append(env, "MNEMONIC_MANDATORY="+strings.Join(c.Mandatory, ","))
-	}
-	if c.ServerAddr != "" {
-		env = append(env, "MNEMONIC_SERVER_ADDR="+c.ServerAddr)
-	}
-	return env
 }

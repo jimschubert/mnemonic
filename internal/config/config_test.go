@@ -378,7 +378,7 @@ func TestConfig_ToEnvMap(t *testing.T) {
 		},
 	}
 
-	m := c.toEnvMap()
+	m := c.ToEnvMap()
 	assert.Equal(t, "debug", m["LOG_LEVEL"])
 	assert.Equal(t, "localhost:9999", m["MNEMONIC_SERVER_ADDR"])
 	assert.Equal(t, "/var/run/mnemonic.sock", m["MNEMONIC_SOCKET_PATH"])
@@ -390,7 +390,7 @@ func TestConfig_ToEnvMapSkipsZeroValues(t *testing.T) {
 	t.Parallel()
 
 	c := Config{}
-	m := c.toEnvMap()
+	m := c.ToEnvMap()
 	assert.Equal(t, 2, len(m), "only always-emitted booleans should be included by default")
 	assert.Equal(t, "false", m["MNEMONIC_EMBEDDINGS_SKIP_PREFLIGHT"], "skip preflight should be included with default value")
 	assert.Equal(t, "false", m["MNEMONIC_UNAUTHENTICATED_STATUS"], "unauthenticated status should be included with default value")
@@ -407,7 +407,7 @@ func TestConfig_ToEnvMapWithEmbeddings(t *testing.T) {
 		},
 	}
 
-	m := c.toEnvMap()
+	m := c.ToEnvMap()
 	assert.Equal(t, "http://localhost:1234/v1/embeddings", m["MNEMONIC_EMBEDDINGS_ENDPOINT"])
 	assert.Equal(t, "all-minilm-l6-v2", m["MNEMONIC_EMBEDDINGS_MODEL"])
 	assert.Equal(t, "token123", m["MNEMONIC_EMBEDDINGS_AUTH_TOKEN"])
@@ -426,7 +426,7 @@ func TestConfig_ToEnvMapWithIndex(t *testing.T) {
 		},
 	}
 
-	m := c.toEnvMap()
+	m := c.ToEnvMap()
 	assert.Equal(t, "sqlite", m["MNEMONIC_INDEX_TYPE"])
 	assert.Equal(t, "384", m["MNEMONIC_INDEX_DIMENSIONS"])
 	assert.Equal(t, "12", m["MNEMONIC_INDEX_CONNECTIONS"])
@@ -441,7 +441,7 @@ func TestConfig_ToEnvMapSkipsZeroIndexValues(t *testing.T) {
 		Index: Index{}, // all zero values
 	}
 
-	m := c.toEnvMap()
+	m := c.ToEnvMap()
 	_, hasType := m["MNEMONIC_INDEX_TYPE"]
 	assert.Equal(t, false, hasType)
 	_, hasDimensions := m["MNEMONIC_INDEX_DIMENSIONS"]

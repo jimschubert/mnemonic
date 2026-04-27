@@ -97,7 +97,7 @@ func Load(paths ...string) (Config, error) {
 			return Config{}, fmt.Errorf("parsing config %s: %w", p, err)
 		}
 		// paths[0] < paths[1] < ... < paths[n]
-		maps.Copy(fm, fc.toEnvMap())
+		maps.Copy(fm, fc.ToEnvMap())
 	}
 
 	var cfg Config
@@ -147,7 +147,7 @@ func (c *Config) logString() string {
 	return strings.Join(parts, ",")
 }
 
-func (c *Config) toEnvMap() map[string]string {
+func (c *Config) ToEnvMap() map[string]string {
 	m := make(map[string]string)
 	putIfNotZero(m, "LOG_LEVEL", c.LogLevel)
 	putIfNotZero(m, "MNEMONIC_SERVER_ADDR", c.ServerAddr)

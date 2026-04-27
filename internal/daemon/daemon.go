@@ -85,6 +85,10 @@ func (d *Daemon) Start(ctx context.Context) error {
 		}
 	}()
 
+	// TBD: server and daemon subcommands no longer support this flow…
+	// determine whether to keep or remove (later).
+	// Similarly: shutdown no longer shuts down servers, which will fail until the daemon comes back up.
+	// May need to introduce a `--broadcast` flag to the stop command so we can stop all servers.
 	if d.conf.ServerAddr != "" {
 		numServers++
 		tcpLn, err := net.Listen("tcp", d.conf.ServerAddr)

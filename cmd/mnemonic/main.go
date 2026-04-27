@@ -22,6 +22,7 @@ var (
 var CLI struct {
 	Default StdioCmd         `hidden:"" cmd:"" default:"withargs" help:"Serve MCP over stdio, starting the daemon if needed (default)"`
 	Stdio   StdioCmd         `cmd:"" help:"Serve MCP over stdio, starting the daemon if needed"`
+	Daemon  DaemonCmd        `cmd:"" help:"Run the background daemon process"`
 	Server  ServerCmd        `cmd:"" help:"Start the MCP HTTP server, starting the daemon if needed"`
 	Stop    StopCmd          `cmd:"" help:"Send a shutdown request to a running daemon"`
 	Embed   EmbedCmd         `cmd:"" help:"Fetch embeddings and build the HNSW index"`

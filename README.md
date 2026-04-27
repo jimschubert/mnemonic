@@ -207,14 +207,15 @@ Example `mnemonic_add` input:
 * `mnemonic stdio` is the default path for editor integrations.
     * It auto-starts the daemon if needed.
     * It proxies MCP calls over stdio to the daemon, which handles storage and embedding.
-* `mnemonic server` starts the HTTP MCP server and daemon-backed storage directly.
-    * You can start `mnemonic stdio` separately; it knows what to do.
+* `mnemonic server` starts the HTTP MCP proxy and auto-starts the daemon if needed.
+    * The daemon serves the Unix socket API; the server forwards HTTP requests to it.
+    * If the daemon stops while `mnemonic server` is still running, requests fail with `502 Bad Gateway` until the daemon is started again.
 * `mnemonic stop` asks the running daemon to shut down cleanly.
     * To avoid stale sessions and errors, any open `stdio` processes will detect the shutdown and exit.
 
-The MCP server is hosted over unix socket by default with an optional HTTP server. The unix socket is a streaming JSON-RPC
-server which is accessible easily using the MCP SDK. See `socketSend` in [store.go](./cmd/mnemonic/store.go) for an 
-example of how to interact with the server programatically.
+The daemon serves the Unix socket API by default. `mnemonic server` exposes the HTTP MCP proxy on top of it.
+The Unix socket is a streaming JSON-RPC server which is accessible easily using the MCP SDK. See `socketSend` in
+[store.go](./cmd/mnemonic/store.go) for an example of how to interact with the server programatically.
 
 ### Storage model
 
