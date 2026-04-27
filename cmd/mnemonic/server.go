@@ -24,6 +24,7 @@ type ServerCmd struct {
 	AuthToken             string   `help:"Bearer token required for all TCP HTTP requests (empty = no auth)" env:"MNEMONIC_AUTH_TOKEN"`
 	AllowedOrigins        []string `help:"Allowed CORS origins; use * to permit any origin" env:"MNEMONIC_ALLOWED_ORIGINS" sep:","`
 	UnauthenticatedStatus bool     `help:"Allow unauthenticated access to GET /api/status" env:"MNEMONIC_UNAUTHENTICATED_STATUS"`
+	SkipIndexSync         bool     `help:"Skip initial index sync on startup; use when restarting or invoking embedding manually" env:"MNEMONIC_SKIP_INDEX_SYNC"`
 
 	Embedding embeddable `embed:"" prefix:"embedding-"`
 }
@@ -50,7 +51,7 @@ func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
 	ctrl, err := controller.New(conf,
 		controller.WithStore(ys),
 		controller.WithLogger(logging.ForScope(conf, "controller")),
-		controller.WithSkipInitialSync(true),
+		controller.WithSkipInitialSync(c.SkipIndexSync),
 		controller.WithMnemonicDir(c.GlobalDir),
 	)
 	if err != nil {

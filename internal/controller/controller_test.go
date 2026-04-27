@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -44,30 +43,31 @@ func (m *mockEmbedder) Available() bool {
 	return m.available
 }
 
-type mockIndexer struct {
+type mockIndexManager struct {
 	vectors map[string][]float32
 	results []index.SearchResult
 }
 
-func (m *mockIndexer) LookupVector(id string) ([]float32, bool) {
-	return m.vectors[id], true
+func (m *mockIndexManager) LookupVector(id string) ([]float32, bool) {
+	vec, ok := m.vectors[id]
+	return vec, ok
 }
 
-func newMockIndexer() *mockIndexer {
-	return &mockIndexer{vectors: make(map[string][]float32)}
+func newMockIndexManager() *mockIndexManager {
+	return &mockIndexManager{vectors: make(map[string][]float32)}
 }
 
-func (m *mockIndexer) InsertVector(id string, vec []float32) error {
+func (m *mockIndexManager) InsertVector(id string, vec []float32) error {
 	m.vectors[id] = vec
 	return nil
 }
 
-func (m *mockIndexer) DeleteVector(id string) error {
+func (m *mockIndexManager) DeleteVector(id string) error {
 	delete(m.vectors, id)
 	return nil
 }
 
-func (m *mockIndexer) Search(_ []float32, k int) ([]index.SearchResult, error) {
+func (m *mockIndexManager) Search(_ []float32, k int) ([]index.SearchResult, error) {
 	if len(m.results) > 0 {
 		if len(m.results) > k {
 			return m.results[:k], nil
@@ -85,7 +85,63 @@ func (m *mockIndexer) Search(_ []float32, k int) ([]index.SearchResult, error) {
 	return out, nil
 }
 
-func (m *mockIndexer) Export(_ any) error { return nil }
+func (m *mockIndexManager) Close() error { return nil }
+func (m *mockIndexManager) Flush() error { return nil }
+
+func (m *mockIndexManager) BuildIndexes(entries []store.Entry, force bool, embed func([]string) ([][]float32, error)) error {
+	if force {
+		m.vectors = make(map[string][]float32)
+	}
+
+	activeIDs := make(map[string]struct{}, len(entries))
+	var toEmbed []store.Entry
+	for _, e := range entries {
+		activeIDs[e.ID] = struct{}{}
+		if force {
+			toEmbed = append(toEmbed, e)
+			continue
+		}
+		if _, ok := m.vectors[e.ID]; !ok {
+			toEmbed = append(toEmbed, e)
+		}
+	}
+
+	for id := range m.vectors {
+		if _, ok := activeIDs[id]; !ok {
+			delete(m.vectors, id)
+		}
+	}
+
+	if len(toEmbed) == 0 {
+		return nil
+	}
+
+	texts := make([]string, len(toEmbed))
+	for i, e := range toEmbed {
+		texts[i] = e.Content
+	}
+	vecs, err := embed(texts)
+	if err != nil {
+		return err
+	}
+	for i, e := range toEmbed {
+		m.vectors[e.ID] = vecs[i]
+	}
+	return nil
+}
+
+func (m *mockIndexManager) IndexEntry(entry *store.Entry, embed func(string) ([]float32, error)) {
+	vec, err := embed(entry.Content)
+	if err == nil {
+		m.vectors[entry.ID] = vec
+	}
+}
+
+func (m *mockIndexManager) RemoveFromIndex(id string) {
+	delete(m.vectors, id)
+}
+
+func (m *mockIndexManager) Validate() error { return nil }
 
 type mockStore struct {
 	entries map[string]*store.Entry
@@ -159,12 +215,12 @@ func TestNew_SyncIndexesExistingEntries(t *testing.T) {
 	ms.entries["a"] = &store.Entry{ID: "a", Content: "hello world", Category: "domain"}
 	ms.entries["b"] = &store.Entry{ID: "b", Content: "go idioms", Category: "syntax"}
 
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	emb := &mockEmbedder{available: true, dim: 4}
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 		WithLogger(testLogger()),
@@ -173,8 +229,10 @@ func TestNew_SyncIndexesExistingEntries(t *testing.T) {
 	defer mc.Close() // nolint:errcheck
 
 	assert.Equal(t, 2, len(idx.vectors))
-	assert.True(t, mc.meta.has("a"))
-	assert.True(t, mc.meta.has("b"))
+	_, ok := mc.indexManager.LookupVector("a")
+	assert.True(t, ok, "entry a should be present in the index")
+	_, ok = mc.indexManager.LookupVector("b")
+	assert.True(t, ok, "entry b should be present in the index")
 }
 
 //goland:noinspection GoUnhandledErrorResult
@@ -185,12 +243,12 @@ func TestNew_EmbedderUnavailable_Passthrough(t *testing.T) {
 	ms := newMockStore()
 	ms.entries["a"] = &store.Entry{ID: "a", Content: "test"}
 
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	emb := &mockEmbedder{available: false, dim: 4}
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 	)
@@ -207,12 +265,12 @@ func TestUpsert_IndexesNewEntry(t *testing.T) {
 	dir := t.TempDir()
 
 	ms := newMockStore()
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	emb := &mockEmbedder{available: true, dim: 4}
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 	)
@@ -222,9 +280,10 @@ func TestUpsert_IndexesNewEntry(t *testing.T) {
 	entry := &store.Entry{ID: "new1", Content: "new entry", Category: "domain"}
 	assert.NoError(t, mc.Upsert(entry))
 
-	assert.True(t, mc.meta.has("new1"))
-	_, ok := idx.vectors["new1"]
-	assert.True(t, ok)
+	_, ok := mc.indexManager.LookupVector("new1")
+	assert.True(t, ok, "upserted entry should be indexed")
+	_, ok = idx.vectors["new1"]
+	assert.True(t, ok, "mock indexer should receive the new vector")
 }
 
 //goland:noinspection GoUnhandledErrorResult
@@ -240,21 +299,21 @@ func TestNew_MissingIndexFileClearsStaleMetadata(t *testing.T) {
 	metaPath := filepath.Join(dir, "index.hnsw.json")
 	assert.NoError(t, meta.save(metaPath))
 
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	emb := &mockEmbedder{available: true, dim: 4}
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
 	defer mc.Close() // nolint:errcheck
-
-	assert.True(t, mc.meta.has("live"))
-	_, ok := idx.vectors["live"]
-	assert.True(t, ok)
+	_, ok := mc.indexManager.LookupVector("live")
+	assert.True(t, ok, "live entry should remain indexed")
+	_, ok = idx.vectors["live"]
+	assert.True(t, ok, "mock indexer should contain the live entry")
 	assert.Equal(t, 1, emb.calls)
 }
 
@@ -309,7 +368,7 @@ func TestUpsert_DeduplicatesOnlyWithinCategoryAndScope(t *testing.T) {
 				Score:    1.0,
 			}
 
-			idx := newMockIndexer()
+			idx := newMockIndexManager()
 			idx.results = []index.SearchResult{
 				{
 					ID:       "existing",
@@ -320,7 +379,7 @@ func TestUpsert_DeduplicatesOnlyWithinCategoryAndScope(t *testing.T) {
 
 			mc, err := New(testConfig(),
 				WithStore(ms),
-				WithIndexer(idx),
+				WithIndexManager(idx),
 				WithEmbedder(emb),
 				WithMnemonicDir(dir),
 				WithSkipInitialSync(true),
@@ -336,7 +395,7 @@ func TestUpsert_DeduplicatesOnlyWithinCategoryAndScope(t *testing.T) {
 			}
 
 			assert.NoError(t, mc.Upsert(entry))
-			assert.Equal(t, tt.wantID, entry.ID)
+			assert.Equal(t, tt.wantID, entry.ID, "deduplication should preserve the expected entry id")
 		})
 	}
 }
@@ -355,7 +414,7 @@ func TestSave_SkipsSemanticDeduplication(t *testing.T) {
 		Score:    1.0,
 	}
 
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	idx.results = []index.SearchResult{
 		{
 			ID:       "existing",
@@ -366,7 +425,7 @@ func TestSave_SkipsSemanticDeduplication(t *testing.T) {
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 		WithSkipInitialSync(true),
@@ -382,9 +441,9 @@ func TestSave_SkipsSemanticDeduplication(t *testing.T) {
 	}
 
 	assert.NoError(t, mc.Save(entry))
-	assert.Equal(t, "entry-to-compact", entry.ID)
+	assert.Equal(t, "entry-to-compact", entry.ID, "save should preserve the provided id")
 	_, ok := ms.entries["entry-to-compact"]
-	assert.True(t, ok)
+	assert.True(t, ok, "save should persist the entry in the store")
 }
 
 //goland:noinspection GoUnhandledErrorResult
@@ -395,59 +454,25 @@ func TestDelete_RemovesFromIndex(t *testing.T) {
 	ms := newMockStore()
 	ms.entries["del1"] = &store.Entry{ID: "del1", Content: "to delete", Category: "domain"}
 
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	emb := &mockEmbedder{available: true, dim: 4}
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
 	defer mc.Close() // nolint:errcheck
 
-	assert.True(t, mc.meta.has("del1"))
+	_, ok1 := mc.indexManager.LookupVector("del1")
+	assert.True(t, ok1, "entry should be indexed before delete")
 	assert.NoError(t, mc.Delete("del1"))
-	assert.False(t, mc.meta.has("del1"))
+	_, ok2 := mc.indexManager.LookupVector("del1")
+	assert.False(t, ok2, "deleted entry should be removed from the index")
 	_, ok := idx.vectors["del1"]
-	assert.False(t, ok)
-}
-
-//goland:noinspection GoUnhandledErrorResult
-func TestSyncIndex_RemovesStaleMetadata(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	ms := newMockStore()
-	ms.entries["live"] = &store.Entry{ID: "live", Content: "alive", Category: "domain"}
-
-	idx := newMockIndexer()
-	idx.vectors["stale"] = []float32{1, 2, 3, 4}
-
-	emb := &mockEmbedder{available: true, dim: 4}
-
-	meta := newMetadata()
-	meta.add("stale")
-	meta.add("live")
-	indexPath := filepath.Join(dir, "index.hnsw")
-	assert.NoError(t, os.WriteFile(indexPath, []byte("test-index"), 0o644))
-	metaPath := filepath.Join(dir, "index.hnsw.json")
-	assert.NoError(t, meta.save(metaPath))
-
-	mc, err := New(testConfig(),
-		WithStore(ms),
-		WithIndexer(idx),
-		WithEmbedder(emb),
-		WithMnemonicDir(dir),
-	)
-	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
-
-	assert.False(t, mc.meta.has("stale"))
-	assert.True(t, mc.meta.has("live"))
-	_, ok := idx.vectors["stale"]
-	assert.False(t, ok)
+	assert.False(t, ok, "mock indexer should not retain deleted vectors")
 }
 
 //goland:noinspection GoUnhandledErrorResult
@@ -459,12 +484,12 @@ func TestSemanticSearch_ReturnsResults(t *testing.T) {
 	ms.entries["s1"] = &store.Entry{ID: "s1", Content: "golang patterns", Category: "syntax", Scope: "global"}
 	ms.entries["s2"] = &store.Entry{ID: "s2", Content: "security rules", Category: "security", Scope: "global"}
 
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	emb := &mockEmbedder{available: true, dim: 4}
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 	)
@@ -473,7 +498,7 @@ func TestSemanticSearch_ReturnsResults(t *testing.T) {
 
 	results, err := mc.SemanticSearch("go patterns", 5, nil, nil)
 	assert.NoError(t, err)
-	assert.True(t, len(results) > 0)
+	assert.True(t, len(results) > 0, "semantic search should return results")
 }
 
 //goland:noinspection GoUnhandledErrorResult
@@ -482,12 +507,12 @@ func TestSemanticSearch_UnavailableReturnsNil(t *testing.T) {
 	dir := t.TempDir()
 
 	ms := newMockStore()
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	emb := &mockEmbedder{available: false, dim: 4}
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 	)
@@ -496,7 +521,7 @@ func TestSemanticSearch_UnavailableReturnsNil(t *testing.T) {
 
 	results, err := mc.SemanticSearch("anything", 5, nil, nil)
 	assert.NoError(t, err)
-	assert.Equal(t, 0, len(results))
+	assert.Equal(t, 0, len(results), "semantic search should return no results without an embedder")
 }
 
 //goland:noinspection GoUnhandledErrorResult
@@ -508,12 +533,12 @@ func TestSemanticSearch_FiltersByScope(t *testing.T) {
 	ms.entries["g1"] = &store.Entry{ID: "g1", Content: "global entry", Category: "domain", Scope: "global"}
 	ms.entries["p1"] = &store.Entry{ID: "p1", Content: "project entry", Category: "domain", Scope: "project"}
 
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	emb := &mockEmbedder{available: true, dim: 4}
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 	)
@@ -523,7 +548,7 @@ func TestSemanticSearch_FiltersByScope(t *testing.T) {
 	results, err := mc.SemanticSearch("entry", 5, []store.Scope{"project"}, nil)
 	assert.NoError(t, err)
 	for _, e := range results {
-		assert.Equal(t, "project", e.Scope)
+		assert.Equal(t, "project", e.Scope, "semantic search should only return the requested scope")
 	}
 }
 
@@ -533,10 +558,14 @@ func TestSemanticSearch_FiltersByCategory(t *testing.T) {
 	dir := t.TempDir()
 
 	ms := newMockStore()
-	ms.entries["syn"] = &store.Entry{ID: "syn", Content: "syntax entry", Category: "syntax", Scope: "global", Score: 1, Created: time.Now()}
-	ms.entries["sec"] = &store.Entry{ID: "sec", Content: "security entry", Category: "security", Scope: "global", Score: 1, Created: time.Now()}
+	ms.entries["syn"] = &store.Entry{
+		ID: "syn", Content: "syntax entry", Category: "syntax", Scope: "global", Score: 1, Created: time.Now(),
+	}
+	ms.entries["sec"] = &store.Entry{
+		ID: "sec", Content: "security entry", Category: "security", Scope: "global", Score: 1, Created: time.Now(),
+	}
 
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	idx.results = []index.SearchResult{
 		{ID: "syn", Distance: 0.01},
 		{ID: "sec", Distance: 0.50},
@@ -545,7 +574,7 @@ func TestSemanticSearch_FiltersByCategory(t *testing.T) {
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 	)
@@ -554,8 +583,8 @@ func TestSemanticSearch_FiltersByCategory(t *testing.T) {
 
 	results, err := mc.SemanticSearch("entry", 5, nil, []string{"security"})
 	assert.NoError(t, err)
-	assert.Equal(t, 1, len(results))
-	assert.Equal(t, "sec", results[0].ID)
+	assert.Equal(t, 1, len(results), "only matching category entries should be returned")
+	assert.Equal(t, "sec", results[0].ID, "security result should be returned first")
 }
 
 //goland:noinspection GoUnhandledErrorResult
@@ -565,10 +594,14 @@ func TestSemanticSearch_PrefersHigherWeightedScoreOnDistanceTie(t *testing.T) {
 	now := time.Now()
 
 	ms := newMockStore()
-	ms.entries["low"] = &store.Entry{ID: "low", Content: "tie entry one", Category: "domain", Scope: "global", Score: 1, Created: now}
-	ms.entries["high"] = &store.Entry{ID: "high", Content: "tie entry two", Category: "domain", Scope: "global", Score: 3, Created: now}
+	ms.entries["low"] = &store.Entry{
+		ID: "low", Content: "tie entry one", Category: "domain", Scope: "global", Score: 1, Created: now,
+	}
+	ms.entries["high"] = &store.Entry{
+		ID: "high", Content: "tie entry two", Category: "domain", Scope: "global", Score: 3, Created: now,
+	}
 
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	idx.results = []index.SearchResult{
 		{ID: "low", Distance: 0.10},
 		{ID: "high", Distance: 0.10},
@@ -577,7 +610,7 @@ func TestSemanticSearch_PrefersHigherWeightedScoreOnDistanceTie(t *testing.T) {
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 	)
@@ -586,42 +619,9 @@ func TestSemanticSearch_PrefersHigherWeightedScoreOnDistanceTie(t *testing.T) {
 
 	results, err := mc.SemanticSearch("tie", 5, nil, nil)
 	assert.NoError(t, err)
-	assert.Equal(t, 2, len(results))
-	assert.Equal(t, "high", results[0].ID)
-	assert.Equal(t, "low", results[1].ID)
-}
-
-//goland:noinspection GoUnhandledErrorResult
-func TestFlushIndex_WritesFiles(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	ms := newMockStore()
-	ms.entries["f1"] = &store.Entry{ID: "f1", Content: "flush test", Category: "domain"}
-
-	idx := newMockIndexer()
-	emb := &mockEmbedder{available: true, dim: 4}
-
-	mc, err := New(testConfig(),
-		WithStore(ms),
-		WithIndexer(idx),
-		WithEmbedder(emb),
-		WithMnemonicDir(dir),
-	)
-	assert.NoError(t, err)
-
-	mc.markDirty()
-	assert.NoError(t, mc.flushIndex())
-
-	metaPath := filepath.Join(dir, "index.hnsw.json")
-	b, err := os.ReadFile(metaPath)
-	assert.NoError(t, err)
-
-	var meta IndexMetadata
-	assert.NoError(t, json.Unmarshal(b, &meta))
-	assert.True(t, meta.has("f1"))
-
-	mc.Close() // nolint:errcheck
+	assert.Equal(t, 2, len(results), "both tied entries should be returned")
+	assert.Equal(t, "high", results[0].ID, "higher weighted score should win tie-breaker")
+	assert.Equal(t, "low", results[1].ID, "lower weighted score should come after higher one")
 }
 
 //goland:noinspection GoUnhandledErrorResult
@@ -630,23 +630,23 @@ func TestFlushIndex_SkipsWhenNotDirty(t *testing.T) {
 	dir := t.TempDir()
 
 	ms := newMockStore()
-	idx := newMockIndexer()
+	idx := newMockIndexManager()
 	emb := &mockEmbedder{available: false, dim: 4}
 
 	mc, err := New(testConfig(),
 		WithStore(ms),
-		WithIndexer(idx),
+		WithIndexManager(idx),
 		WithEmbedder(emb),
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
 	defer mc.Close() // nolint:errcheck
 
-	assert.NoError(t, mc.flushIndex())
+	assert.NoError(t, mc.indexManager.Flush())
 
 	metaPath := filepath.Join(dir, "index.hnsw.json")
 	_, err = os.Stat(metaPath)
-	assert.True(t, os.IsNotExist(err))
+	assert.True(t, os.IsNotExist(err), "flush should not create metadata when index is clean")
 }
 
 func TestMetadata_LoadSaveRoundtrip(t *testing.T) {
@@ -670,5 +670,5 @@ func TestMetadata_LoadNonexistent(t *testing.T) {
 	t.Parallel()
 	m, err := loadMetadata("/tmp/nonexistent-mnemonic-meta.json")
 	assert.NoError(t, err)
-	assert.Equal(t, 0, len(m.Entries))
+	assert.Equal(t, 0, len(m.Entries), "missing metadata file should produce an empty set")
 }

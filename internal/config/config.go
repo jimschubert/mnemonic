@@ -15,8 +15,9 @@ import (
 
 var Version = "0.1.0"
 
-// Index holds configuration for the HNSW index parameters (expects simplified interface of github.com/coder/hnsw).
+// Index holds configuration for the vector index.
 type Index struct {
+	Type        string  `yaml:"type" env:"INDEX_TYPE,default=hnsw"`
 	Dimensions  int     `yaml:"dimensions" env:"DIMENSIONS,default=768"`
 	Connections int     `yaml:"connections" env:"CONNECTIONS,default=16"`
 	LevelFactor float64 `yaml:"level_factor" env:"LEVEL_FACTOR,default=0.25"`
@@ -126,6 +127,7 @@ func (c *Config) AsMap() map[string]string {
 	putIfNotZero(m, "embeddings_endpoint", c.Embeddings.Endpoint)
 	putIfNotZero(m, "embeddings_model", c.Embeddings.Model)
 	putIfNotZero(m, "embeddings_auth_token", c.Embeddings.AuthToken)
+	putIfNotZero(m, "index_type", c.Index.Type)
 	putIfNotZero(m, "index_dimensions", c.Index.Dimensions, strconv.Itoa)
 	putIfNotZero(m, "index_connections", c.Index.Connections, strconv.Itoa)
 	putIfNotZero(m, "index_level_factor", c.Index.LevelFactor, formatFloat64)
@@ -159,6 +161,7 @@ func (c *Config) toEnvMap() map[string]string {
 	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_ENDPOINT", c.Embeddings.Endpoint)
 	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_MODEL", c.Embeddings.Model)
 	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_AUTH_TOKEN", c.Embeddings.AuthToken)
+	putIfNotZero(m, "MNEMONIC_INDEX_TYPE", c.Index.Type)
 	putIfNotZero(m, "MNEMONIC_INDEX_DIMENSIONS", c.Index.Dimensions, strconv.Itoa)
 	putIfNotZero(m, "MNEMONIC_INDEX_CONNECTIONS", c.Index.Connections, strconv.Itoa)
 	putIfNotZero(m, "MNEMONIC_INDEX_LEVEL_FACTOR", c.Index.LevelFactor, formatFloat64)
@@ -214,6 +217,9 @@ func (c *Config) ApplyOverrides(overrides Config) {
 		c.Embeddings.SkipPreflight = overrides.Embeddings.SkipPreflight
 	}
 
+	if overrides.Index.Type != "" {
+		c.Index.Type = overrides.Index.Type
+	}
 	if overrides.Index.Dimensions != 0 {
 		c.Index.Dimensions = overrides.Index.Dimensions
 	}

@@ -11,13 +11,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/embed"
-	"github.com/jimschubert/mnemonic/internal/index"
-	"github.com/jimschubert/mnemonic/internal/index/hnsw"
 	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
@@ -43,23 +40,13 @@ type SemanticSearcher interface {
 // When an Embedder is available, it keeps vectors in sync with store entries and supports SemanticSearch.
 // When no Embedder is available, it passes through to the inner store.
 type MemoryController struct {
-	store    store.Store
-	embedder embed.Embedder
-	indexer  index.Indexer
-	// meta tracks which files have been indexed so we can efficiently sync new/deleted entries without full re-index.
-	meta   *IndexMetadata
-	logger *slog.Logger
-	conf   config.Config
+	store        store.Store
+	embedder     embed.Embedder
+	indexManager IndexManager
+	logger       *slog.Logger
+	conf         config.Config
 
-	indexPath string
-	metaPath  string
-
-	// mu guards dirty flag and meta
-	mu sync.Mutex
-	// indexMu guards indexer (coder/hnsw is not thread-safe)
-	indexMu sync.RWMutex
-	dirty   bool
-	done    chan struct{}
+	done chan struct{}
 }
 
 var _ store.Store = (*MemoryController)(nil)
@@ -82,10 +69,7 @@ func New(conf config.Config, opts ...Option) (*MemoryController, error) {
 		o.logger.Info("creating embedder", "type", "http", "endpoint", conf.Embeddings.Endpoint, "model", conf.Embeddings.Model)
 		o.embedder = embed.New(conf)
 	}
-	if o.indexer == nil {
-		o.logger.Info("creating indexer", "type", "hnsw", "dimensions", conf.Index.Dimensions, "connections", conf.Index.Connections, "level_factor", conf.Index.LevelFactor, "ef_search", conf.Index.EfSearch)
-		o.indexer = hnsw.New(conf)
-	}
+
 	if o.store == nil {
 		s, err := yamlstore.New(map[store.Scope]string{
 			store.ScopeGlobal: filepath.Join(o.mnemonicDir, "global"),
@@ -106,33 +90,45 @@ func New(conf config.Config, opts ...Option) (*MemoryController, error) {
 	}
 
 	mc := &MemoryController{
-		store:     o.store,
-		embedder:  o.embedder,
-		indexer:   o.indexer,
-		conf:      conf,
-		indexPath: filepath.Join(dir, "index.hnsw"),
-		metaPath:  filepath.Join(dir, "index.hnsw.json"),
-		logger:    o.logger,
-		done:      make(chan struct{}),
+		store:    o.store,
+		embedder: o.embedder,
+		conf:     conf,
+		logger:   o.logger,
+		done:     make(chan struct{}),
+	}
+
+	if o.indexManager != nil {
+		mc.indexManager = o.indexManager
+	} else {
+		var err error
+		if conf.Index.Type == "sqlite" {
+			mc.logger.Info("creating sqlite index manager", "path", filepath.Join(dir, "index.db"))
+			mc.indexManager, err = newSqliteManager(filepath.Join(dir, "index.db"), conf, o.logger)
+			if err != nil {
+				return nil, fmt.Errorf("initializing sqlite index manager: %w", err)
+			}
+		} else {
+			mc.logger.Info("creating HNSW index manager", "path", filepath.Join(dir, "index.hnsw"), "config", conf.Index)
+			mc.indexManager = newHnswManager(filepath.Join(dir, "index.hnsw"), filepath.Join(dir, "index.hnsw.json"), conf, o.logger)
+		}
 	}
 
 	if o.embedder.Available() {
-		if err := mc.loadIndex(); err != nil {
-			mc.logger.Warn("failed to load index, starting fresh", "err", err)
-			mc.meta = newMetadata()
-			// Rebuild the indexer to ensure a clean state after import failure
-			o.logger.Info("rebuilding indexer after failed import", "type", "hnsw", "dimensions", conf.Index.Dimensions, "connections", conf.Index.Connections, "level_factor", conf.Index.LevelFactor, "ef_search", conf.Index.EfSearch)
-			mc.indexer = hnsw.New(conf)
+		// only HNSW-backed managers expose Load.
+		if mgr, ok := mc.indexManager.(interface{ Load() error }); ok {
+			if err := mgr.Load(); err != nil {
+				mc.logger.Warn("failed to load index", "err", err)
+			}
 		}
+
 		if !o.skipInitialSync {
-			// BuildIndexes incrementally syncs then immediately flushes when force=false.
+			mc.logger.Info("syncing index with store entries on startup")
 			if err := mc.BuildIndexes(false); err != nil && !errors.Is(err, ErrEmbedderNotAvailable) {
 				mc.logger.Warn("index sync error", "err", err)
 			}
 		}
 	} else {
 		mc.logger.Info("embedder unavailable, skipping index load and sync")
-		mc.meta = newMetadata()
 	}
 
 	go mc.flushLoop()
@@ -143,7 +139,7 @@ func New(conf config.Config, opts ...Option) (*MemoryController, error) {
 func (mc *MemoryController) Close() error {
 	close(mc.done)
 	var errs error
-	if err := mc.flushIndex(); err != nil {
+	if err := mc.indexManager.Close(); err != nil {
 		errs = err
 	}
 	if c, ok := mc.store.(io.Closer); ok {
@@ -191,11 +187,13 @@ func (mc *MemoryController) doUpsert(entry *store.Entry) error {
 	if err != nil {
 		return err
 	}
-	mc.indexEntry(entry)
+	if mc.embedder.Available() {
+		mc.indexManager.IndexEntry(entry, mc.embedder.EmbedSingle)
+	}
 	return nil
 }
 
-// Save allows for re-save without all the embedding and deduplication logic of Upsert. DOES _NOT_ UPDATE INDEX.
+// Save persists an entry without embedding or deduplication.
 func (mc *MemoryController) Save(entry *store.Entry) error {
 	return mc.store.Upsert(entry)
 }
@@ -212,9 +210,7 @@ func (mc *MemoryController) Upsert(entry *store.Entry) error {
 		return mc.doUpsert(entry)
 	}
 
-	mc.indexMu.RLock()
-	results, err := mc.indexer.Search(vec, 3)
-	mc.indexMu.RUnlock()
+	results, err := mc.indexManager.Search(vec, 3)
 	if err != nil {
 		mc.logger.Warn("index search error during upsert; skipping deduplication", "err", err)
 		return mc.doUpsert(entry)
@@ -273,7 +269,9 @@ func (mc *MemoryController) Delete(id string) error {
 	if err := mc.store.Delete(id); err != nil {
 		return err
 	}
-	mc.removeFromIndex(id)
+	if mc.embedder.Available() {
+		mc.indexManager.RemoveFromIndex(id)
+	}
 	return nil
 }
 
@@ -300,9 +298,7 @@ func (mc *MemoryController) SemanticSearch(query string, k int, scopes []store.S
 		searchK = k * 2
 	}
 
-	mc.indexMu.RLock()
-	results, err := mc.indexer.Search(vec, searchK)
-	mc.indexMu.RUnlock()
+	results, err := mc.indexManager.Search(vec, searchK)
 	if err != nil {
 		return nil, fmt.Errorf("index search: %w", err)
 	}
@@ -325,7 +321,7 @@ func (mc *MemoryController) SemanticSearch(query string, k int, scopes []store.S
 	for _, r := range results {
 		entry, err := mc.store.Get(r.ID)
 		if err != nil {
-			mc.removeFromIndex(r.ID)
+			mc.indexManager.RemoveFromIndex(r.ID)
 			continue
 		}
 		if len(scopeSet) > 0 && !scopeSet[entry.Scope] {
@@ -371,9 +367,7 @@ func (mc *MemoryController) FindSimilar(id string, threshold float64) ([]Similar
 	}
 
 	// Use the indexed vector, as embedding can return slightly different values each time you call it
-	mc.indexMu.RLock()
-	vec, ok := mc.indexer.LookupVector(id)
-	mc.indexMu.RUnlock()
+	vec, ok := mc.indexManager.LookupVector(id)
 
 	if !ok {
 		// entry not yet indexed; fall back to embedding
@@ -390,10 +384,8 @@ func (mc *MemoryController) FindSimilar(id string, threshold float64) ([]Similar
 	// threshold of 0.9 (90% similar) means a distance of 0.1
 	targetDistance := float32(1.0 - threshold)
 
-	mc.indexMu.RLock()
 	// k=10 should be good, but maybe this could be configurable?
-	results, err := mc.indexer.Search(vec, 10)
-	mc.indexMu.RUnlock()
+	results, err := mc.indexManager.Search(vec, 10)
 	if err != nil {
 		return nil, fmt.Errorf("index search: %w", err)
 	}
@@ -461,69 +453,6 @@ func (mc *MemoryController) Merge(keepId string, deleteId string) error {
 	return nil
 }
 
-func (mc *MemoryController) loadIndex() error {
-	meta, err := loadMetadata(mc.metaPath)
-	if err != nil {
-		return fmt.Errorf("loading metadata: %w", err)
-	}
-	mc.meta = meta
-
-	f, err := os.Open(mc.indexPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			if len(mc.meta.Entries) > 0 {
-				mc.logger.Warn("index file missing; clearing stale metadata", "meta_entries", len(mc.meta.Entries), "path", mc.indexPath)
-				mc.meta = newMetadata()
-			}
-			return nil
-		}
-		return fmt.Errorf("opening index: %w", err)
-	}
-	defer f.Close() // nolint:errcheck
-
-	type importer interface {
-		Import(conf config.Config, r io.Reader) error
-	}
-	if imp, ok := mc.indexer.(importer); ok {
-		if err := imp.Import(mc.conf, f); err != nil {
-			return fmt.Errorf("importing index: %w", err)
-		}
-	}
-
-	if err := mc.validateIndex(); err != nil {
-		mc.logger.Warn("loaded index failed validation, rebuilding", "err", err)
-		mc.indexer = hnsw.New(mc.conf)
-		mc.meta = newMetadata()
-		return nil
-	}
-
-	return nil
-}
-
-// validateIndex makes sure the index is usable.
-// necessary because I was seeing panics lack of mutexes around hnsw graph, which is apparently not thread-safe.
-func (mc *MemoryController) validateIndex() (retErr error) {
-	if mc.indexer == nil || mc.meta == nil || len(mc.meta.Entries) == 0 {
-		return nil
-	}
-
-	defer func() {
-		if r := recover(); r != nil {
-			retErr = fmt.Errorf("index validation panicked (corrupted index file): %v", r)
-		}
-	}()
-
-	testVec := make([]float32, mc.conf.Index.Dimensions)
-	for i := range testVec {
-		testVec[i] = 0.5
-	}
-
-	mc.indexMu.RLock()
-	_, retErr = mc.indexer.Search(testVec, 1)
-	mc.indexMu.RUnlock()
-	return retErr
-}
-
 // BuildIndexes builds the index or force rebuilds the entire index from scratch.
 func (mc *MemoryController) BuildIndexes(force bool) error {
 	if !mc.embedder.Available() {
@@ -535,162 +464,22 @@ func (mc *MemoryController) BuildIndexes(force bool) error {
 		return err
 	}
 
-	if force {
-		mc.logger.Info("force rebuilding indexer",
-			"type", "hnsw",
-			"dimensions", mc.conf.Index.Dimensions,
-			"connections", mc.conf.Index.Connections,
-			"level_factor", mc.conf.Index.LevelFactor,
-			"ef_search", mc.conf.Index.EfSearch)
-		mc.indexer = hnsw.New(mc.conf)
-		mc.meta = newMetadata()
-	}
-
-	// embed all entries not yet in the index
-	activeIDs := make(map[string]struct{}, len(entries))
-	var toEmbed []store.Entry
-	for _, e := range entries {
-		activeIDs[e.ID] = struct{}{}
-		if !mc.meta.has(e.ID) {
-			toEmbed = append(toEmbed, e)
-		}
-	}
-
-	// remove stale entries
-	for id := range mc.meta.Entries {
-		if _, ok := activeIDs[id]; !ok {
-			mc.indexMu.Lock()
-			_ = mc.indexer.DeleteVector(id)
-			mc.indexMu.Unlock()
-			mc.meta.remove(id)
-		}
-	}
-
-	if len(toEmbed) == 0 {
-		mc.markDirty()
-		return mc.flushIndex()
-	}
-
-	mc.logger.Info("indexing entries", "count", len(toEmbed), "force", force)
-
-	texts := make([]string, len(toEmbed))
-	for i, e := range toEmbed {
-		texts[i] = e.Content
-	}
-
-	vectors, err := mc.embedder.Embed(texts)
-	if err != nil {
-		return fmt.Errorf("batch embedding: %w", err)
-	}
-	if len(vectors) != len(toEmbed) {
-		return fmt.Errorf("batch embedding returned %d vectors for %d entries", len(vectors), len(toEmbed))
-	}
-
-	for i, e := range toEmbed {
-		mc.indexMu.Lock()
-		err := mc.indexer.InsertVector(e.ID, vectors[i])
-		mc.indexMu.Unlock()
-		if err != nil {
-			mc.logger.Warn("failed to index entry", "id", e.ID, "err", err)
-			continue
-		}
-		mc.meta.add(e.ID)
-	}
-
-	mc.markDirty()
-	return mc.flushIndex()
-}
-
-func (mc *MemoryController) indexEntry(entry *store.Entry) {
-	if !mc.embedder.Available() {
-		return
-	}
-	vec, err := mc.embedder.EmbedSingle(entry.Content)
-	if err != nil {
-		mc.logger.Warn("failed to embed entry", "id", entry.ID, "err", err)
-		return
-	}
-	mc.indexMu.Lock()
-	defer mc.indexMu.Unlock()
-	if err := mc.indexer.InsertVector(entry.ID, vec); err != nil {
-		mc.logger.Warn("failed to index entry", "id", entry.ID, "err", err)
-		return
-	}
-	mc.mu.Lock()
-	mc.meta.add(entry.ID)
-	mc.dirty = true
-	mc.mu.Unlock()
-}
-
-func (mc *MemoryController) removeFromIndex(id string) {
-	mc.mu.Lock()
-	if !mc.meta.has(id) {
-		mc.mu.Unlock()
-		return
-	}
-	mc.meta.remove(id)
-	mc.dirty = true
-	mc.mu.Unlock()
-
-	mc.indexMu.Lock()
-	_ = mc.indexer.DeleteVector(id)
-	mc.indexMu.Unlock()
-}
-
-func (mc *MemoryController) markDirty() {
-	mc.mu.Lock()
-	mc.dirty = true
-	mc.mu.Unlock()
+	return mc.indexManager.BuildIndexes(entries, force, mc.embedder.Embed)
 }
 
 func (mc *MemoryController) flushLoop() {
-	// TODO: maybe it makes sense to move flushing logic like this to shared struct (share here and yamlstore, plus any future stores)
 	t := time.NewTicker(flushInterval)
 	defer t.Stop()
 	for {
 		select {
 		case <-t.C:
-			if err := mc.flushIndex(); err != nil {
+			if err := mc.indexManager.Flush(); err != nil {
 				mc.logger.Warn("index flush error", "err", err)
 			}
 		case <-mc.done:
 			return
 		}
 	}
-}
-
-func (mc *MemoryController) flushIndex() error {
-	mc.mu.Lock()
-	if !mc.dirty {
-		mc.mu.Unlock()
-		return nil
-	}
-	mc.dirty = false
-	mc.mu.Unlock()
-
-	if exp, ok := mc.indexer.(index.Exporter); ok {
-		f, err := os.Create(mc.indexPath)
-		if err != nil {
-			return fmt.Errorf("creating index file: %w", err)
-		}
-		defer func(f *os.File) {
-			if err := f.Close(); err != nil {
-				mc.logger.Warn("error closing index file", "err", err)
-			}
-		}(f)
-		mc.indexMu.RLock()
-		err = exp.Export(f)
-		mc.indexMu.RUnlock()
-		if err != nil {
-			return fmt.Errorf("exporting index: %w", err)
-		}
-	}
-
-	if err := mc.meta.save(mc.metaPath); err != nil {
-		return fmt.Errorf("saving metadata: %w", err)
-	}
-
-	return nil
 }
 
 func expandHome(path string) string {

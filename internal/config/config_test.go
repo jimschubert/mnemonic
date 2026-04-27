@@ -224,6 +224,8 @@ func TestConfig_AsMapWithIndexZeroValues(t *testing.T) {
 	}
 
 	m := c.AsMap()
+	_, hasType := m["index_type"]
+	assert.Equal(t, false, hasType)
 	_, hasDimensions := m["index_dimensions"]
 	assert.Equal(t, false, hasDimensions)
 	_, hasConnections := m["index_connections"]
@@ -241,6 +243,7 @@ func TestConfig_AsMapWithIndex(t *testing.T) {
 		LogLevel:   "debug",
 		ServerAddr: "localhost:20001",
 		Index: Index{
+			Type:        "sqlite",
 			Dimensions:  512,
 			Connections: 8,
 			LevelFactor: 100,
@@ -249,6 +252,7 @@ func TestConfig_AsMapWithIndex(t *testing.T) {
 	}
 
 	m := c.AsMap()
+	assert.Equal(t, "sqlite", m["index_type"])
 	assert.Equal(t, "512", m["index_dimensions"])
 	assert.Equal(t, "8", m["index_connections"])
 	assert.Equal(t, "100", m["index_level_factor"])
@@ -414,6 +418,7 @@ func TestConfig_ToEnvMapWithIndex(t *testing.T) {
 
 	c := Config{
 		Index: Index{
+			Type:        "sqlite",
 			Dimensions:  384,
 			Connections: 12,
 			LevelFactor: 0.3,
@@ -422,6 +427,7 @@ func TestConfig_ToEnvMapWithIndex(t *testing.T) {
 	}
 
 	m := c.toEnvMap()
+	assert.Equal(t, "sqlite", m["MNEMONIC_INDEX_TYPE"])
 	assert.Equal(t, "384", m["MNEMONIC_INDEX_DIMENSIONS"])
 	assert.Equal(t, "12", m["MNEMONIC_INDEX_CONNECTIONS"])
 	assert.Equal(t, "0.3", m["MNEMONIC_INDEX_LEVEL_FACTOR"])
@@ -436,6 +442,8 @@ func TestConfig_ToEnvMapSkipsZeroIndexValues(t *testing.T) {
 	}
 
 	m := c.toEnvMap()
+	_, hasType := m["MNEMONIC_INDEX_TYPE"]
+	assert.Equal(t, false, hasType)
 	_, hasDimensions := m["MNEMONIC_INDEX_DIMENSIONS"]
 	assert.Equal(t, false, hasDimensions)
 	_, hasConnections := m["MNEMONIC_INDEX_CONNECTIONS"]
