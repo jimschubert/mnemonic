@@ -102,11 +102,13 @@ func New(conf config.Config, opts ...Option) (*MemoryController, error) {
 	} else {
 		var err error
 		if conf.Index.Type == "sqlite" {
+			mc.logger.Info("creating sqlite index manager", "path", filepath.Join(dir, "index.db"))
 			mc.indexManager, err = newSqliteManager(filepath.Join(dir, "index.db"), conf, o.logger)
 			if err != nil {
 				return nil, fmt.Errorf("initializing sqlite index manager: %w", err)
 			}
 		} else {
+			mc.logger.Info("creating HNSW index manager", "path", filepath.Join(dir, "index.hnsw"), "config", conf.Index)
 			mc.indexManager = newHnswManager(filepath.Join(dir, "index.hnsw"), filepath.Join(dir, "index.hnsw.json"), conf, o.logger)
 		}
 	}
@@ -120,6 +122,7 @@ func New(conf config.Config, opts ...Option) (*MemoryController, error) {
 		}
 
 		if !o.skipInitialSync {
+			mc.logger.Info("syncing index with store entries on startup")
 			if err := mc.BuildIndexes(false); err != nil && !errors.Is(err, ErrEmbedderNotAvailable) {
 				mc.logger.Warn("index sync error", "err", err)
 			}
@@ -131,7 +134,6 @@ func New(conf config.Config, opts ...Option) (*MemoryController, error) {
 	go mc.flushLoop()
 	return mc, nil
 }
-
 
 // Close stops the flush loop, persists the index, and closes the inner store.
 func (mc *MemoryController) Close() error {
