@@ -4,13 +4,12 @@ import (
 	"log/slog"
 
 	"github.com/jimschubert/mnemonic/internal/embed"
-	"github.com/jimschubert/mnemonic/internal/index"
 	"github.com/jimschubert/mnemonic/internal/store"
 )
 
 type options struct {
 	embedder        embed.Embedder
-	indexer         index.Indexer
+	indexManager    IndexManager
 	store           store.Store
 	logger          *slog.Logger
 	mnemonicDir     string
@@ -27,10 +26,10 @@ func WithEmbedder(e embed.Embedder) Option {
 	}
 }
 
-// WithIndexer overrides the default indexer.
-func WithIndexer(i index.Indexer) Option {
+// WithIndexManager overrides the default index manager.
+func WithIndexManager(m IndexManager) Option {
 	return func(o *options) {
-		o.indexer = i
+		o.indexManager = m
 	}
 }
 
