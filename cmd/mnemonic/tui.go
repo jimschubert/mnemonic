@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -14,3 +17,39 @@ var (
 			Width(80)
 	simStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Bold(true)
 )
+
+type compactProgress struct {
+	total       int
+	updated     int
+	failed      int
+	interactive bool
+}
+
+//goland:noinspection GoUnhandledErrorResult
+func (p *compactProgress) write(i int, done bool, status string) {
+	if !p.interactive {
+		os.Stdout.WriteString(".") //nolint:errcheck
+		return
+	}
+	current := i
+	if done {
+		current = i + 1
+	}
+	_, _ = fmt.Fprintf(
+		os.Stdout,
+		"\rcompacting %d/%d updated=%d failed=%d status=%s",
+		current,
+		p.total,
+		p.updated,
+		p.failed,
+		status,
+	)
+}
+
+func (p *compactProgress) writeLine(i int, status string) {
+	if !p.interactive {
+		return
+	}
+	p.write(i, true, status)
+	_, _ = fmt.Fprintln(os.Stdout)
+}

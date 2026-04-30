@@ -20,6 +20,7 @@ import (
 	"github.com/jimschubert/mnemonic/internal/embed"
 	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
+	"golang.org/x/term"
 )
 
 // CompactCmd allows for compacting a memory by querying an LLM to reduce overall token size of the memory without losing detail.
@@ -156,20 +157,72 @@ func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 		return fmt.Errorf("retrieving entries: %w", err)
 	}
 
-	for _, entry := range entries {
+	processed := 0
+	var firstErr error
+	progress := &compactProgress{
+		total:       len(entries),
+		interactive: term.IsTerminal(int(os.Stdout.Fd())),
+	}
+
+	for i, entry := range entries {
+		status := "running"
+		progress.write(i, false, status)
+
 		maybeNew, err := compacter.Compact(entry.Content)
 		if err != nil {
+			progress.failed++
+			processed = i + 1
+			if firstErr == nil {
+				firstErr = fmt.Errorf("entry %s compact failed: %w", entry.ID, err)
+			}
 			logger.Warn("compaction failed for entry", "id", entry.ID, "err", err)
+			progress.writeLine(i, "warn: "+entry.ID)
+			if isDaemonBackend {
+				break
+			}
 			continue
 		}
+
 		if maybeNew != entry.Content {
 			entry.Content = maybeNew
 			if err := backend.Save(&entry); err != nil {
+				progress.failed++
+				processed = i + 1
+				if firstErr == nil {
+					firstErr = fmt.Errorf("entry %s save failed: %w", entry.ID, err)
+				}
 				logger.Warn("failed to update entry after compaction", "id", entry.ID, "err", err)
+				progress.writeLine(i, "error: "+err.Error())
+				if isDaemonBackend {
+					break
+				}
 				continue
 			}
+			progress.updated++
+			status = "updated"
+		}
+		processed = i + 1
+
+		progress.write(i, true, status)
+	}
+
+	if len(entries) > 0 {
+		_, _ = fmt.Fprintln(os.Stdout)
+	}
+
+	if firstErr != nil {
+		logger.Warn("compaction encountered errors", "first_err", firstErr)
+		if isDaemonBackend {
+			return fmt.Errorf("daemon backend unavailable during compaction (processed %d/%d): %w", processed, len(entries), firstErr)
+		}
+		if progress.updated == 0 {
+			return fmt.Errorf("compaction failed: %w", firstErr)
 		}
 	}
+	if progress.failed > 0 {
+		logger.Warn("compaction completed with warnings", "failed", progress.failed)
+	}
+	logger.Info("compaction completed", "total", len(entries), "updated", progress.updated, "failed", progress.failed)
 
 	if isDaemonBackend {
 		return nil
