@@ -12,4 +12,4 @@
 - [ ] Lint YOLO command to automatically merge by some rule
   - e.g. keep the entry with fewer tokens
   - should warn on <0.85 similarity ("Make sure your store is committed before proceeding")
-- [ ] update stop command with a `--broadcast` to shutdown daemon and any attached http servers
+- [X] update stop command with a `--broadcast` to shutdown daemon and any attached http servers -- added stdio like polling
