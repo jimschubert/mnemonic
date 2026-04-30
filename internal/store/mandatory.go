@@ -5,11 +5,13 @@ import (
 	"sync"
 )
 
-var onceMandatory = sync.Once{}
-var mandatory = []string{
-	"avoidance",
-	"security",
-}
+var (
+	onceMandatory = sync.Once{}
+	mandatory     = []string{
+		"avoidance",
+		"security",
+	}
+)
 
 func IsMandatoryCategory(head string) bool {
 	return slices.Contains(mandatory, head)

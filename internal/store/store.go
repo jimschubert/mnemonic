@@ -16,8 +16,7 @@ type HeadInfo struct {
 	Mandatory bool   `json:"mandatory" yaml:"mandatory"`
 }
 
-type QueryOptions struct {
-}
+type QueryOptions struct{}
 
 // Store defines the persistent storage contract (YAML, Chroma, etc.).
 type Store interface {

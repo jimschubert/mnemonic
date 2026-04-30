@@ -1,7 +1,6 @@
 package store
 
-type NoopStore struct {
-}
+type NoopStore struct{}
 
 func (s *NoopStore) ListHeads(scopes []Scope) ([]HeadInfo, error) {
 	return nil, nil

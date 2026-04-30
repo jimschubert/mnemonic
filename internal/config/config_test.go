@@ -269,7 +269,7 @@ client_timeout_sec: 10
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte(yaml), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
 		t.Fatalf("writing temp config: %v", err)
 	}
 
@@ -287,7 +287,7 @@ server_addr: "localhost:9999"
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte(yaml), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
 		t.Fatalf("writing temp config: %v", err)
 	}
 
@@ -315,10 +315,10 @@ func TestLoad_LaterFileWins(t *testing.T) {
 	first := filepath.Join(dir, "global.yaml")
 	second := filepath.Join(dir, "project.yaml")
 
-	if err := os.WriteFile(first, []byte("server_addr: \"localhost:1000\"\n"), 0600); err != nil {
+	if err := os.WriteFile(first, []byte("server_addr: \"localhost:1000\"\n"), 0o600); err != nil {
 		t.Fatalf("writing first config: %v", err)
 	}
-	if err := os.WriteFile(second, []byte("server_addr: \"localhost:2000\"\n"), 0600); err != nil {
+	if err := os.WriteFile(second, []byte("server_addr: \"localhost:2000\"\n"), 0o600); err != nil {
 		t.Fatalf("writing second config: %v", err)
 	}
 
@@ -338,7 +338,7 @@ logging:
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte(yaml), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
 		t.Fatalf("writing temp config: %v", err)
 	}
 
