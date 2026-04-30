@@ -23,10 +23,8 @@ import (
 // TODO: make flush configurable
 const flushInterval = 30 * time.Second
 
-var (
-	// ErrEmbedderNotAvailable is returned when an operation requires an embedder but one is not available.
-	ErrEmbedderNotAvailable = errors.New("embedder not available")
-)
+// ErrEmbedderNotAvailable is returned when an operation requires an embedder but one is not available.
+var ErrEmbedderNotAvailable = errors.New("embedder not available")
 
 // SemanticSearcher implements vector-based semantic search.
 // This is separate from store.Store because SemanticSearch is a responsibility of the embed.Embedder + index.Indexer
@@ -49,8 +47,10 @@ type MemoryController struct {
 	done chan struct{}
 }
 
-var _ store.Store = (*MemoryController)(nil)
-var _ SemanticSearcher = (*MemoryController)(nil)
+var (
+	_ store.Store      = (*MemoryController)(nil)
+	_ SemanticSearcher = (*MemoryController)(nil)
+)
 
 // New creates a MemoryController. cfg is required; Embedder, Indexer, and
 // Store are constructed from cfg unless overridden via options.
@@ -193,9 +193,9 @@ func (mc *MemoryController) doUpsert(entry *store.Entry) error {
 	return nil
 }
 
-// Save persists an entry without embedding or deduplication.
+// Save persists an entry without controller-level semantic deduplication and keeps the vector index in sync when available.
 func (mc *MemoryController) Save(entry *store.Entry) error {
-	return mc.store.Upsert(entry)
+	return mc.doUpsert(entry)
 }
 
 func (mc *MemoryController) Upsert(entry *store.Entry) error {
@@ -444,6 +444,9 @@ func (mc *MemoryController) Merge(keepId string, deleteId string) error {
 
 	if err := mc.store.Upsert(keep); err != nil {
 		return fmt.Errorf("updating kept entry after merge: %w", err)
+	}
+	if mc.embedder.Available() {
+		mc.indexManager.IndexEntry(keep, mc.embedder.EmbedSingle)
 	}
 
 	if err := mc.store.Delete(deleteId); err != nil {

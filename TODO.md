@@ -6,9 +6,10 @@
 - [X] Add support for embeddings
 - [X] Add support for semantic search
 - [X] Use semantic search to avoid inserting duplicates
-- [ ] Add support for vector databases (maybe NornicDB)
+- [X] Add support for vector databases (maybe NornicDB) -- sqlite3 with vector extension
 - [X] Add support for HNSW indexes
-- [ ] Lint rewording (e.g. caveman?)
+- [X] Lint rewording (e.g. caveman?))
 - [ ] Lint YOLO command to automatically merge by some rule
   - e.g. keep the entry with fewer tokens
   - should warn on <0.85 similarity ("Make sure your store is committed before proceeding")
+- [ ] update stop command with a `--broadcast` to shutdown daemon and any attached http servers

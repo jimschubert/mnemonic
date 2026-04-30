@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
+	"os"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -11,7 +14,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/controller"
+	"github.com/jimschubert/mnemonic/internal/daemon"
 	"github.com/jimschubert/mnemonic/internal/lint"
+	"github.com/jimschubert/mnemonic/internal/store"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 )
 
@@ -84,7 +89,7 @@ type LintCmd struct {
 }
 
 //goland:noinspection GoUnhandledErrorResult
-func (c *LintCmd) Run(logger *slog.Logger, conf config.Config) error {
+func (c *LintCmd) Run(_ *slog.Logger, conf config.Config) error {
 	c.Embedding.applyConfig(&conf)
 
 	noopLog := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -93,21 +98,61 @@ func (c *LintCmd) Run(logger *slog.Logger, conf config.Config) error {
 	}
 
 	scopes := createScopes(c.GlobalDir, c.LocalDir, c.Team)
-	ys, err := yamlstore.New(scopes, noopLog, yamlstore.WithAutoHitCounting(false))
-	if err != nil {
-		return fmt.Errorf("creating YAML store: %w", err)
-	}
-
-	ctrl, err := controller.New(conf,
-		controller.WithStore(ys),
-		controller.WithLogger(noopLog),
-		controller.WithSkipInitialSync(false),
-		controller.WithMnemonicDir(c.GlobalDir),
+	var (
+		ctrl    *controller.MemoryController
+		backend entryStoreBackend
+		err     error
 	)
-	if err != nil {
-		return err
+
+	if daemon.IsRunning(conf) {
+		backend = daemonEntryStoreBackend{client: newDaemonAdminClient(conf)}
+		entries, err := backend.All(slices.Collect(maps.Keys(scopes)))
+		if err != nil {
+			return fmt.Errorf("retrieving daemon entries: %w", err)
+		}
+
+		// need a snapshot-only index, so don't use globaldir here
+		snapshotDir, cleanupSnapshotDir, err := newSnapshotTempDir("mnemonic-lint-")
+		if err != nil {
+			return err
+		}
+
+		ctrl, err = controller.New(conf,
+			controller.WithStore(store.NewSnapshotStore(entries)),
+			controller.WithLogger(noopLog),
+			controller.WithSkipInitialSync(true),
+			controller.WithMnemonicDir(snapshotDir),
+		)
+		defer func() {
+			if ctrl != nil {
+				_ = ctrl.Close()
+			}
+			cleanupSnapshotDir()
+		}()
+		if err != nil {
+			return fmt.Errorf("creating snapshot controller: %w", err)
+		}
+		if err := ctrl.BuildIndexes(true); err != nil {
+			return fmt.Errorf("building daemon-backed index: %w", err)
+		}
+	} else {
+		ys, err := yamlstore.New(scopes, noopLog, yamlstore.WithAutoHitCounting(false))
+		if err != nil {
+			return fmt.Errorf("creating YAML store: %w", err)
+		}
+
+		ctrl, err = controller.New(conf,
+			controller.WithStore(ys),
+			controller.WithLogger(noopLog),
+			controller.WithSkipInitialSync(false),
+			controller.WithMnemonicDir(c.GlobalDir),
+		)
+		if err != nil {
+			return err
+		}
+		backend = ctrl
+		defer ctrl.Close() // nolint:errcheck
 	}
-	defer ctrl.Close() // nolint:errcheck
 
 	l := lint.New(ctrl)
 	actions, err := l.Analyze(c.Threshold)
@@ -120,7 +165,7 @@ func (c *LintCmd) Run(logger *slog.Logger, conf config.Config) error {
 		return nil
 	}
 
-	p := tea.NewProgram(newLintModel(actions, ctrl))
+	p := tea.NewProgram(newLintModel(actions, backend))
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("running linter TUI: %w", err)
 	}
@@ -128,10 +173,20 @@ func (c *LintCmd) Run(logger *slog.Logger, conf config.Config) error {
 	return nil
 }
 
+func newSnapshotTempDir(pattern string) (string, func(), error) {
+	dir, err := os.MkdirTemp("", pattern)
+	if err != nil {
+		return "", nil, fmt.Errorf("creating temporary lint index dir: %w", err)
+	}
+	return dir, func() {
+		_ = os.RemoveAll(dir)
+	}, nil
+}
+
 type lintModel struct {
 	actions      []lint.Action
 	index        int
-	ctrl         *controller.MemoryController
+	backend      entryStoreBackend
 	keys         lintKeyMap
 	help         help.Model
 	showFullHelp bool
@@ -140,10 +195,10 @@ type lintModel struct {
 	finished bool
 }
 
-func newLintModel(actions []lint.Action, ctrl *controller.MemoryController) lintModel {
+func newLintModel(actions []lint.Action, backend entryStoreBackend) lintModel {
 	return lintModel{
 		actions: actions,
-		ctrl:    ctrl,
+		backend: backend,
 		keys:    lintKeys,
 		help:    help.New(),
 	}
@@ -165,28 +220,28 @@ func (m lintModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.index++
 		case key.Matches(msg, m.keys.MergeA):
 			action := m.actions[m.index]
-			if err := m.ctrl.Merge(action.Right.ID, action.Left.ID); err != nil {
+			if err := m.backend.Merge(action.Right.ID, action.Left.ID); err != nil {
 				m.err = err
 				return m, tea.Quit
 			}
 			m.index++
 		case key.Matches(msg, m.keys.MergeB):
 			action := m.actions[m.index]
-			if err := m.ctrl.Merge(action.Left.ID, action.Right.ID); err != nil {
+			if err := m.backend.Merge(action.Left.ID, action.Right.ID); err != nil {
 				m.err = err
 				return m, tea.Quit
 			}
 			m.index++
 		case key.Matches(msg, m.keys.DeleteB):
 			action := m.actions[m.index]
-			if err := m.ctrl.Delete(action.Right.ID); err != nil {
+			if err := m.backend.Delete(action.Right.ID); err != nil {
 				m.err = err
 				return m, tea.Quit
 			}
 			m.index++
 		case key.Matches(msg, m.keys.DeleteA):
 			action := m.actions[m.index]
-			if err := m.ctrl.Delete(action.Left.ID); err != nil {
+			if err := m.backend.Delete(action.Left.ID); err != nil {
 				m.err = err
 				return m, tea.Quit
 			}
@@ -201,6 +256,7 @@ func (m lintModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	return m, nil
 }
+
 func (m lintModel) truncateTo(s string, n int) string {
 	if len(s) <= n {
 		return s

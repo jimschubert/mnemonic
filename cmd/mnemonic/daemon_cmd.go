@@ -46,7 +46,7 @@ func (c *DaemonCmd) Run(logger *slog.Logger, conf config.Config) error {
 		return err
 	}
 
-	// For the daemon command, we do not listen on TCP by default. 
+	// For the daemon command, we do not listen on TCP by default.
 	// We clear ServerAddr so the daemon package only listens on the Unix socket.
 	conf.ServerAddr = ""
 

@@ -16,6 +16,7 @@ import (
 	"github.com/jimschubert/mnemonic/internal/compact"
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/controller"
+	"github.com/jimschubert/mnemonic/internal/daemon"
 	"github.com/jimschubert/mnemonic/internal/embed"
 	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
@@ -113,24 +114,36 @@ func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 	}
 
 	scopes := createScopes(c.GlobalDir, c.LocalDir, c.Team)
-	ys, err := yamlstore.New(scopes,
-		logging.ForScope(conf, "store"),
-		yamlstore.WithAutoHitCounting(false),
+	var (
+		backend         entryStoreBackend
+		ctrl            *controller.MemoryController
+		isDaemonBackend bool
 	)
-	if err != nil {
-		return fmt.Errorf("creating YAML store: %w", err)
-	}
 
-	ctrl, err := controller.New(conf,
-		controller.WithStore(ys),
-		controller.WithLogger(logger),
-		controller.WithSkipInitialSync(true),
-		controller.WithMnemonicDir(c.GlobalDir),
-	)
-	if err != nil {
-		return fmt.Errorf("creating controller: %w", err)
+	if daemon.IsRunning(conf) {
+		backend = daemonEntryStoreBackend{client: newDaemonAdminClient(conf)}
+		isDaemonBackend = true
+	} else {
+		ys, err := yamlstore.New(scopes,
+			logging.ForScope(conf, "store"),
+			yamlstore.WithAutoHitCounting(false),
+		)
+		if err != nil {
+			return fmt.Errorf("creating YAML store: %w", err)
+		}
+
+		ctrl, err = controller.New(conf,
+			controller.WithStore(ys),
+			controller.WithLogger(logger),
+			controller.WithSkipInitialSync(true),
+			controller.WithMnemonicDir(c.GlobalDir),
+		)
+		if err != nil {
+			return fmt.Errorf("creating controller: %w", err)
+		}
+		defer ctrl.Close() // nolint:errcheck
+		backend = ctrl
 	}
-	defer ctrl.Close() //nolint:errcheck
 
 	compacter := compact.New(embed.New(conf), c.BaseURL, c.ApiKey, c.Model,
 		compact.WithLogger(logging.ForScope(conf, "compact")),
@@ -138,7 +151,7 @@ func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 	)
 	defer compacter.Close() // nolint:errcheck
 
-	entries, err := ctrl.All(slices.Collect(maps.Keys(scopes)))
+	entries, err := backend.All(slices.Collect(maps.Keys(scopes)))
 	if err != nil {
 		return fmt.Errorf("retrieving entries: %w", err)
 	}
@@ -151,11 +164,15 @@ func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 		}
 		if maybeNew != entry.Content {
 			entry.Content = maybeNew
-			if err := ctrl.Save(&entry); err != nil {
+			if err := backend.Save(&entry); err != nil {
 				logger.Warn("failed to update entry after compaction", "id", entry.ID, "err", err)
 				continue
 			}
 		}
+	}
+
+	if isDaemonBackend {
+		return nil
 	}
 
 	return ctrl.BuildIndexes(true)

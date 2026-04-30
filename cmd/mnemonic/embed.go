@@ -10,15 +10,15 @@ import (
 )
 
 type embeddable struct {
-	Endpoint         string  `default:"${embeddings_endpoint}" help:"Full embedding endpoint URL"`
-	Model            string  `default:"${embeddings_model}" help:"Embedding model name"`
-	AuthToken        string  `help:"Authentication token for embedding endpoint"`
-	SkipPreflight    bool    `default:"${embeddings_skip_preflight}" help:"Skip preflight check before building index"`
-	IndexType        string  `default:"${index_type}" help:"Type of index to use (hnsw or sqlite)"`
-	Dimensions        int     `default:"${index_dimensions}" help:"Expected embedding dimensions; auto-verified against test string response"`
-	Connections       int     `default:"${index_connections}" help:"HNSW-only connections per node"`
-	LevelFactor       float64 `default:"${index_level_factor}" help:"HNSW-only level multiplication factor (Ml)"`
-	EfSearch          int     `default:"${index_ef_search}" help:"HNSW-only ef parameter for search"`
+	Endpoint      string  `default:"${embeddings_endpoint}" help:"Full embedding endpoint URL"`
+	Model         string  `default:"${embeddings_model}" help:"Embedding model name"`
+	AuthToken     string  `help:"Authentication token for embedding endpoint"`
+	SkipPreflight bool    `default:"${embeddings_skip_preflight}" help:"Skip preflight check before building index"`
+	IndexType     string  `default:"${index_type}" help:"Type of index to use (hnsw or sqlite)"`
+	Dimensions    int     `default:"${index_dimensions}" help:"Expected embedding dimensions; auto-verified against test string response"`
+	Connections   int     `default:"${index_connections}" help:"HNSW-only connections per node"`
+	LevelFactor   float64 `default:"${index_level_factor}" help:"HNSW-only level multiplication factor (Ml)"`
+	EfSearch      int     `default:"${index_ef_search}" help:"HNSW-only ef parameter for search"`
 }
 
 func (e *embeddable) applyConfig(conf *config.Config) {

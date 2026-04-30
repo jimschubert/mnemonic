@@ -67,6 +67,12 @@ func (d *Daemon) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/status", d.handleStatus)
 	mux.HandleFunc("POST /api/shutdown", d.handleShutdown)
+	mux.HandleFunc("GET /api/admin/entries", d.handleAdminEntries)
+	mux.HandleFunc("GET /api/admin/entries/{id}", d.handleAdminEntryGet)
+	mux.HandleFunc("PUT /api/admin/entries/{id}", d.handleAdminEntryUpdate)
+	mux.HandleFunc("DELETE /api/admin/entries/{id}", d.handleAdminEntryDelete)
+	mux.HandleFunc("GET /api/admin/heads", d.handleAdminHeads)
+	mux.HandleFunc("POST /api/admin/entries/merge", d.handleAdminMerge)
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(
 		func(_ *http.Request) *mcp.Server { return d.mcpServer },
 		nil,

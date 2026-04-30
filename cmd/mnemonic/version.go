@@ -38,7 +38,3 @@ func resolvedVersionString() string {
 func isDefaultVersionMetadata(versionValue, commitValue string) bool {
 	return versionValue == defaultVersionValue && commitValue == defaultCommitValue
 }
-
-
-
-

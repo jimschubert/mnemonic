@@ -20,7 +20,7 @@ func TestResolvedVersionString(t *testing.T) {
 			version: "1.2.3",
 			commit:  "abc1234",
 			buildInfo: &debug.BuildInfo{
-				Main: debug.Module{Version: "v9.9.9"},
+				Main:     debug.Module{Version: "v9.9.9"},
 				Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "deadbeefcafebabe"}},
 			},
 			want: "1.2.3 (abc1234)",
@@ -65,5 +65,3 @@ func TestResolvedVersionString(t *testing.T) {
 		})
 	}
 }
-
-

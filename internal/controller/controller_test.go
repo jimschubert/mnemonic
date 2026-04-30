@@ -447,6 +447,47 @@ func TestSave_SkipsSemanticDeduplication(t *testing.T) {
 }
 
 //goland:noinspection GoUnhandledErrorResult
+func TestSave_UpdatesIndexWithoutDeduplication(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	ms := newMockStore()
+	ms.entries["existing"] = &store.Entry{
+		ID:       "existing",
+		Content:  "original memory",
+		Category: "domain",
+		Scope:    "project",
+		Score:    1.0,
+	}
+
+	idx := newMockIndexManager()
+	emb := &mockEmbedder{available: true, dim: 4}
+
+	mc, err := New(testConfig(),
+		WithStore(ms),
+		WithIndexManager(idx),
+		WithEmbedder(emb),
+		WithMnemonicDir(dir),
+		WithSkipInitialSync(true),
+	)
+	assert.NoError(t, err)
+	defer mc.Close() // nolint:errcheck
+
+	entry := &store.Entry{
+		ID:       "existing",
+		Content:  "compacted memory",
+		Category: "domain",
+		Scope:    "project",
+	}
+
+	assert.NoError(t, mc.Save(entry))
+	assert.Equal(t, "existing", entry.ID)
+	assert.Equal(t, "compacted memory", ms.entries["existing"].Content)
+	_, ok := mc.indexManager.LookupVector("existing")
+	assert.True(t, ok, "save should refresh the index for the stored entry")
+}
+
+//goland:noinspection GoUnhandledErrorResult
 func TestDelete_RemovesFromIndex(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
