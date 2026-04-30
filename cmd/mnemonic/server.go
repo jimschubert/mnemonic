@@ -50,6 +50,7 @@ func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
 		Team:              c.Team,
 		Mandatory:         c.Mandatory,
 		IncludeServerAddr: false,
+		SkipIndexSync:     c.SkipIndexSync,
 	})
 
 	if err := ensureDaemon(logger, conf, extraEnv); err != nil {

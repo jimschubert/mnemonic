@@ -20,6 +20,7 @@ type daemonEnvOptions struct {
 	Mandatory []string
 
 	IncludeServerAddr bool
+	SkipIndexSync     bool
 }
 
 // startDaemonBackground spawns the daemon subcommand as a background process.
@@ -97,6 +98,10 @@ func daemonEnv(conf config.Config, opts daemonEnvOptions) []string {
 
 	if !opts.IncludeServerAddr {
 		delete(m, "MNEMONIC_SERVER_ADDR")
+	}
+
+	if opts.SkipIndexSync {
+		m["MNEMONIC_SKIP_INDEX_SYNC"] = "true"
 	}
 
 	env := make([]string, 0, len(m))
