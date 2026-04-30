@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sethvargo/go-envconfig"
 	"go.yaml.in/yaml/v4"
@@ -39,6 +40,7 @@ type Config struct {
 	// Logging allows for scoped logging, e.g. server=warn; scopes will be 1:1 with packages, e.g. server, store, etc.
 	Logging          map[string]string `yaml:"logging" env:"MNEMONIC_LOGGING,separator=="`
 	ClientTimeoutSec int               `yaml:"client_timeout_sec" env:"MNEMONIC_CLIENT_TIMEOUT_SEC,default=5"`
+	PollIntervalSec  int               `yaml:"poll_interval_sec" env:"MNEMONIC_POLL_INTERVAL_SEC,default=10"`
 	ServerAddr       string            `yaml:"server_addr" env:"MNEMONIC_SERVER_ADDR,default=localhost:20001"`
 	SocketPathRaw    string            `yaml:"socket_path" env:"MNEMONIC_SOCKET_PATH,default=~/.mnemonic/mnemonic.sock"`
 	// AuthToken, if non-empty, requires all TCP HTTP requests to present "Authorization: Bearer <token>".
@@ -53,6 +55,10 @@ type Config struct {
 
 func (c *Config) ClientTimeout() int {
 	return max(5, c.ClientTimeoutSec)
+}
+
+func (c *Config) PollInterval() time.Duration {
+	return time.Duration(max(1, c.PollIntervalSec)) * time.Second
 }
 
 func (c *Config) LogLevelFor(scope string) string {
@@ -114,6 +120,7 @@ func (c *Config) AsMap() map[string]string {
 	m := map[string]string{
 		"log_level":                 c.LogLevel,
 		"client_timeout_sec":        strconv.Itoa(c.ClientTimeoutSec),
+		"poll_interval_sec":         strconv.Itoa(c.PollIntervalSec),
 		"server_addr":               c.ServerAddr,
 		"socket_path":               c.SocketPathRaw,
 		"embeddings_skip_preflight": strconv.FormatBool(c.Embeddings.SkipPreflight),
@@ -153,6 +160,7 @@ func (c *Config) ToEnvMap() map[string]string {
 	putIfNotZero(m, "MNEMONIC_SERVER_ADDR", c.ServerAddr)
 	putIfNotZero(m, "MNEMONIC_SOCKET_PATH", c.SocketPathRaw)
 	putIfNotZero(m, "MNEMONIC_CLIENT_TIMEOUT_SEC", c.ClientTimeoutSec, strconv.Itoa)
+	putIfNotZero(m, "MNEMONIC_POLL_INTERVAL_SEC", c.PollIntervalSec, strconv.Itoa)
 	putIfNotZero(m, "MNEMONIC_LOGGING", c.logString())
 	putIfNotZero(m, "MNEMONIC_AUTH_TOKEN", c.AuthToken)
 	if len(c.AllowedOrigins) > 0 {
@@ -187,6 +195,9 @@ func (c *Config) ApplyOverrides(overrides Config) {
 	}
 	if overrides.ClientTimeoutSec != 0 {
 		c.ClientTimeoutSec = overrides.ClientTimeoutSec
+	}
+	if overrides.PollIntervalSec != 0 {
+		c.PollIntervalSec = overrides.PollIntervalSec
 	}
 	if len(overrides.Logging) > 0 {
 		if c.Logging == nil {

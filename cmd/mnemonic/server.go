@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jimschubert/mnemonic/internal/config"
+	"github.com/jimschubert/mnemonic/internal/daemon"
 	"github.com/jimschubert/mnemonic/internal/server"
 )
 
@@ -54,6 +55,9 @@ func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
 	if err := ensureDaemon(logger, conf, extraEnv); err != nil {
 		return fmt.Errorf("ensuring daemon: %w", err)
 	}
+
+	watchCtx, watchCancel := daemon.WatchDaemon(context.Background(), daemon.NewSocketClient(conf), conf.PollInterval())
+	defer watchCancel()
 
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(req *httputil.ProxyRequest) {
@@ -103,6 +107,8 @@ func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
 	select {
 	case sig := <-sigCh:
 		logger.Info("signal received, shutting down proxy", "signal", sig)
+	case <-watchCtx.Done():
+		logger.Info("daemon stopped, shutting down proxy")
 	case err := <-errCh:
 		return err
 	}

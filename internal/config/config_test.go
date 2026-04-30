@@ -190,7 +190,7 @@ func TestConfig_AsMapNoLogging(t *testing.T) {
 	}
 
 	m := c.AsMap()
-	assert.Equal(t, 6, len(m))
+	assert.Equal(t, 7, len(m))
 	_, ok := m["logging"]
 	assert.Equal(t, false, ok)
 }
