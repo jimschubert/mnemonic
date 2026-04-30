@@ -16,6 +16,7 @@ import (
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/daemon"
 	"github.com/jimschubert/mnemonic/internal/server"
+	"github.com/muesli/reflow/wordwrap"
 )
 
 // ServerCmd starts the MCP server as a stateless proxy to the background daemon.
@@ -31,6 +32,16 @@ type ServerCmd struct {
 	SkipIndexSync         bool     `help:"Skip initial index sync on startup; use when restarting or invoking embedding manually" env:"MNEMONIC_SKIP_INDEX_SYNC"`
 
 	Embedding embeddable `embed:"" prefix:"embedding-"`
+}
+
+func (c *ServerCmd) Help() string {
+	help := `
+The MCP server as a stateless proxy to the background daemon. The daemon starts automatically if not running.
+The server can be terminated without impacting the daemon or YAML store. To stop the daemon, use 'mnemonic daemon stop'.
+	
+Multiple servers can be attached to the same daemon, allowing for different ports, auth tokens, etc.
+`
+	return wordwrap.String(help, 80)
 }
 
 func (c *ServerCmd) Run(logger *slog.Logger, conf config.Config) error {
