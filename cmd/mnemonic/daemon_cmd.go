@@ -12,10 +12,30 @@ import (
 	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
+	"github.com/muesli/reflow/wordwrap"
 )
 
-// DaemonCmd starts the background daemon managing the YAML store and Unix socket.
+// DaemonCmd groups daemon lifecycle subcommands. Running `daemon` alone starts the daemon (default).
 type DaemonCmd struct {
+	Start DaemonStartCmd `cmd:"start" default:"withargs" help:"Start the background daemon process (default)"`
+	Stop  DaemonStopCmd  `cmd:"" help:"Send a shutdown request to a running daemon"`
+}
+
+func (c *DaemonCmd) Help() string {
+	help := `
+The daemon manages the YAML store and exposes it via MCP and admin APIs over a Unix socket. 
+It starts automatically for commands like 'mnemonic server' or 'mnemonic stdio', and can 
+be manually started with 'mnemonic daemon start'. Attach a stateless frontend like server 
+or stdio later. 
+	
+Running the command without a subcommand defaults to starting the daemon.
+`
+
+	return wordwrap.String(help, 80)
+}
+
+// DaemonStartCmd starts the background daemon managing the YAML store and Unix socket.
+type DaemonStartCmd struct {
 	GlobalDir     string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
 	LocalDir      string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
 	Team          []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
@@ -25,7 +45,7 @@ type DaemonCmd struct {
 	Embedding embeddable `embed:"" prefix:"embedding-"`
 }
 
-func (c *DaemonCmd) Run(logger *slog.Logger, conf config.Config) error {
+func (c *DaemonStartCmd) Run(logger *slog.Logger, conf config.Config) error {
 	c.Embedding.applyConfig(&conf)
 
 	store.WithAdditionalMandatoryCategories(c.Mandatory)

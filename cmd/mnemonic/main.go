@@ -22,9 +22,9 @@ var (
 var CLI struct {
 	Default StdioCmd         `hidden:"" cmd:"" default:"withargs" help:"Serve MCP over stdio, starting the daemon if needed (default)"`
 	Stdio   StdioCmd         `cmd:"" help:"Serve MCP over stdio, starting the daemon if needed"`
-	Daemon  DaemonCmd        `cmd:"" help:"Run the background daemon process"`
+	Daemon  DaemonCmd        `cmd:"" help:"Manage the background daemon process"`
 	Server  ServerCmd        `cmd:"" help:"Start the MCP HTTP server, starting the daemon if needed"`
-	Stop    StopCmd          `cmd:"" help:"Send a shutdown request to a running daemon"`
+	Stop    DaemonStopCmd    `cmd:"" help:"Send a shutdown request to a running daemon"`
 	Embed   EmbedCmd         `cmd:"" help:"Fetch embeddings and build the HNSW index"`
 	Lint    LintCmd          `cmd:"" help:"Analyze memory store for redundancy and resolve interactively"`
 	Store   StoreCmd         `cmd:"" help:"Interact with the memory store over unix socket (daemon must be running)"`
