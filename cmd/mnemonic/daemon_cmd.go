@@ -17,8 +17,9 @@ import (
 
 // DaemonCmd groups daemon lifecycle subcommands. Running `daemon` alone starts the daemon (default).
 type DaemonCmd struct {
-	Start DaemonStartCmd `cmd:"start" default:"withargs" help:"Start the background daemon process (default)"`
-	Stop  DaemonStopCmd  `cmd:"" help:"Send a shutdown request to a running daemon"`
+	Start  DaemonStartCmd  `cmd:"start" default:"withargs" help:"Start the background daemon process (default)"`
+	Stop   DaemonStopCmd   `cmd:"" help:"Send a shutdown request to a running daemon"`
+	Status DaemonStatusCmd `cmd:"" help:"Show daemon status (socket path, uptime, version)"`
 }
 
 func (c *DaemonCmd) Help() string {
