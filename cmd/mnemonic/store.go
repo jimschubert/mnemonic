@@ -15,6 +15,7 @@ type StoreCmd struct {
 	Query     QueryCmd     `cmd:"" help:"Query the memory store"`
 	Add       AddCmd       `cmd:"" help:"Add an entry to the memory store"`
 	Get       GetCmd       `cmd:"" help:"Inspect a single entry in the memory store by ID"`
+	List      ListCmd      `cmd:"" help:"List entries in the memory store, with optional filters"`
 	Delete    DeleteCmd    `cmd:"" help:"Delete an entry from the memory store by ID"`
 	ListHeads ListHeadsCmd `cmd:"" help:"List all memory heads in the store"`
 	Reinforce ReinforceCmd `cmd:"" help:"Reinforce a memory entry to increase its relevance score"`

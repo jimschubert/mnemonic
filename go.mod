@@ -12,6 +12,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/coder/hnsw v0.6.2-0.20260409155042-1e7c441a6bbf
 	github.com/modelcontextprotocol/go-sdk v1.5.0
+	github.com/muesli/reflow v0.3.0
 	github.com/ncruces/go-sqlite3 v0.20.3
 	github.com/sethvargo/go-envconfig v1.3.0
 	go.yaml.in/yaml/v4 v4.0.0-rc.4
@@ -39,7 +40,6 @@ require (
 	github.com/mattn/go-isatty v0.0.21 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
