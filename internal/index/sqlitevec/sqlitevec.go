@@ -110,6 +110,9 @@ func (idx *Index) Search(target []float32, k int) (results []index.SearchResult,
 	if len(target) != idx.dimensions {
 		return nil, fmt.Errorf("target dimension mismatch: expected %d, got %d", idx.dimensions, len(target))
 	}
+	if k <= 0 {
+		return nil, fmt.Errorf("k must be greater than 0, got %d", k)
+	}
 
 	blob, err := sqlite_vec.SerializeFloat32(target)
 	if err != nil {
@@ -120,8 +123,8 @@ func (idx *Index) Search(target []float32, k int) (results []index.SearchResult,
 		SELECT id, distance
 		FROM vec_index
 		WHERE embedding MATCH ?
+		  AND k = ?
 		ORDER BY distance
-		LIMIT ?
 	`
 	rows, err := idx.db.Query(query, blob, k)
 	if err != nil {
