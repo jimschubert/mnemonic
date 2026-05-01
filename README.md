@@ -58,7 +58,7 @@ once your memory store grows beyond a few dozen entries.
 
 ### Install
 
-``` sh
+```sh
 go install github.com/jimschubert/mnemonic/cmd/mnemonic@latest
 ```
 
@@ -122,7 +122,7 @@ embeddings:
   model: nomic-ai/nomic-embed-text-v1.5
 ```
 
-``` sh
+```sh
 mnemonic embed
 ```
 
@@ -132,7 +132,7 @@ If embeddings are unavailable, `mnemonic` falls back to category and keyword sea
 
 Use `mnemonic lint` to analyze your memory store for any similarities which need to be merged/deleted (requires embeddings):
 
-``` sh
+```sh
 # Analyze with default 90% similarity threshold
 mnemonic lint
 
@@ -274,7 +274,7 @@ That means important memories stay visible, but stale memories naturally decay o
 
 ## Commands
 
-``` sh
+```sh
 mnemonic --help
 ```
 
@@ -319,7 +319,7 @@ Run `mnemonic <command> --help` for options or subcommands.
 > See https://apfel.franzai.com/ for more details and installation instructions.
 > 
 > Once installed, run `apfel --serve` and run `mnemonic compact` with these options:
-> ``` sh
+> ```sh
 > mnemonic compact --base-url http://127.0.0.1:11434/v1 \
 >     --api-key abcd123 \
 >     --model apple-foundationmodel
@@ -327,7 +327,7 @@ Run `mnemonic <command> --help` for options or subcommands.
 
 ### Useful examples
 
-``` sh
+```sh
 # Start the MCP server (default, or explicitly with stdio)
 mnemonic server --server-addr localhost:9999
 mnemonic stdio
@@ -431,7 +431,7 @@ For the full configuration surface, see [`internal/config/config.go`](./internal
 Pass one or more `--team` directories to load additional shared scopes. Each team directory becomes
 `team:<basename>`, so `/shared/acme` becomes `team:acme`.
 
-``` sh
+```sh
 mnemonic server --team /shared/acme --team /shared/platform --server-addr localhost:9999
 ```
 
@@ -455,6 +455,50 @@ more than a few dozen memories.
 
 The default embedding settings are aimed at a local LM Studio-compatible endpoint, but any
 compatible embeddings API should work if it returns vectors with the configured dimensions.
+
+## Notes
+
+### macOS: sqlite3 extension loading
+
+The system-provided `sqlite3` on macOS may not be able to load extensions, and mnemonic's index requires [sqlite-vec](https://github.com/asg017/sqlite-vec).
+If you use semantic search with embeddings on macOS and you want to inspect or (not recommended) edit the index manually, you'll need to install `sqlite3` from Homebrew:
+
+```sh
+brew install sqlite3
+```
+
+This is **keg-only**, meaning it doesn't link overtop the system sqlite - that would break things.
+
+Create an alias to this installed version:
+
+```sh
+# Add to your shell's rc file such as ~/.zshrc or ~/.bash_profile
+alias sqlite="$(brew --prefix sqlite)/bin/sqlite3"
+```
+
+Then reload your shell and check the version:
+
+```sh
+sqlite --version
+```
+
+### macOS: vec0 extension
+
+If you want to interact with the vector index using sqlite3, you'll need to download and extract the `vec0` extension 
+from the [sqlite-vec releases page](https://github.com/asg017/sqlite-vec/releases).
+
+Then, start sqlite3 (via the alias described above) and load the extension:
+
+```text
+$ sqlite ~/.mnemonic/index.db
+sqlite> .load /path/to/vec0
+sqlite> select count(*) from vec_index;
+╭──────────╮
+│ count(*) │
+╞══════════╡
+│       46 │
+╰──────────╯
+```
 
 ## License
 

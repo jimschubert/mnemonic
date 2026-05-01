@@ -18,7 +18,7 @@ var Version = "0.1.0"
 
 // Index holds configuration for the vector index.
 type Index struct {
-	Type        string  `yaml:"type" env:"INDEX_TYPE,default=hnsw"`
+	Type        string  `yaml:"type" env:"INDEX_TYPE,default=sqlite"`
 	Dimensions  int     `yaml:"dimensions" env:"DIMENSIONS,default=768"`
 	Connections int     `yaml:"connections" env:"CONNECTIONS,default=16"`
 	LevelFactor float64 `yaml:"level_factor" env:"LEVEL_FACTOR,default=0.25"`
