@@ -98,10 +98,6 @@ func confirmCavemanMode(in io.Reader, out io.Writer, mode compact.CavemanMode, t
 	}
 }
 
-func (c *CompactCmd) shouldConfirmCavemanMode(mode compact.CavemanMode) bool {
-	return mode != compact.CavemanOff && !c.Yes
-}
-
 //goland:noinspection GoUnhandledErrorResult
 func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 	c.Embedding.applyConfig(&conf)
@@ -229,4 +225,8 @@ func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 	}
 
 	return ctrl.BuildIndexes(true)
+}
+
+func (c *CompactCmd) shouldConfirmCavemanMode(mode compact.CavemanMode) bool {
+	return mode != compact.CavemanOff && !c.Yes
 }

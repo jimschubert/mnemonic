@@ -257,13 +257,6 @@ func (m lintModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m lintModel) truncateTo(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}
-
 func (m lintModel) View() tea.View {
 	if m.err != nil {
 		return tea.NewView(fmt.Sprintf("Error: %v\n", m.err))
@@ -300,4 +293,11 @@ func (m lintModel) View() tea.View {
 	}
 
 	return tea.NewView(s + strings.Repeat("\n", height) + helpView)
+}
+
+func (m lintModel) truncateTo(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }

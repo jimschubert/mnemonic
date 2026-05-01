@@ -123,7 +123,7 @@ func (d *Daemon) Start(ctx context.Context) error {
 	case <-d.shutdownCh:
 		d.logger.Info("shutdown requested via API")
 	case <-ctx.Done():
-		d.logger.Info("context cancelled, shutting down")
+		d.logger.Info("context canceled, shutting down")
 	case err := <-errCh:
 		return err
 	}

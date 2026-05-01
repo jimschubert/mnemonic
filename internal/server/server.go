@@ -31,7 +31,7 @@ type Server struct {
 	server    *http.Server
 }
 
-// McpServer returns the underlying MCP server, e.g. for embedding in teh daemon.
+// McpServer returns the underlying MCP server, e.g. for embedding in the daemon.
 func (s *Server) McpServer() *mcp.Server {
 	return s.mcpServer
 }

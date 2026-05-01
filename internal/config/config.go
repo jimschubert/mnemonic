@@ -142,18 +142,6 @@ func (c *Config) AsMap() map[string]string {
 	return m
 }
 
-func (c *Config) logString() string {
-	if len(c.Logging) == 0 {
-		return ""
-	}
-
-	parts := make([]string, 0, len(c.Logging))
-	for k, v := range c.Logging {
-		parts = append(parts, k+"="+v)
-	}
-	return strings.Join(parts, ",")
-}
-
 func (c *Config) ToEnvMap() map[string]string {
 	m := make(map[string]string)
 	putIfNotZero(m, "LOG_LEVEL", c.LogLevel)
@@ -243,6 +231,18 @@ func (c *Config) ApplyOverrides(overrides Config) {
 	if overrides.Index.EfSearch != 0 {
 		c.Index.EfSearch = overrides.Index.EfSearch
 	}
+}
+
+func (c *Config) logString() string {
+	if len(c.Logging) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(c.Logging))
+	for k, v := range c.Logging {
+		parts = append(parts, k+"="+v)
+	}
+	return strings.Join(parts, ",")
 }
 
 // formatFloat64 formats a float64 to string without trailing zeros.

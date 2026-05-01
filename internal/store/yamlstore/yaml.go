@@ -110,19 +110,6 @@ func New(scopeDirs map[store.Scope]string, logger *slog.Logger, opts ...Option) 
 	return s, nil
 }
 
-func (s *YAMLStore) flushLoop() {
-	t := time.NewTicker(flushInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-t.C:
-			_ = s.flush()
-		case <-s.done:
-			return
-		}
-	}
-}
-
 // Close stops the background flush goroutine and persists any dirty categories.
 func (s *YAMLStore) Close() error {
 	if s.closed {
@@ -324,6 +311,55 @@ func (s *YAMLStore) Promote(id string, targetScope store.Scope) error {
 	return fmt.Errorf("entry %q not found", id)
 }
 
+func (s *YAMLStore) Score(id string, delta float64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for scope, files := range s.data {
+		for category, f := range files {
+			for idx, entry := range f.Entries {
+				if entry.ID == id {
+					f.Entries[idx].Score = math.Max(0, entry.Score+delta)
+					if s.autoHitCounting {
+						f.Entries[idx].HitCount++
+						f.Entries[idx].LastHit = time.Now()
+					}
+					return s.persist(scope, category)
+				}
+			}
+		}
+	}
+	return fmt.Errorf("entry %q not found", id)
+}
+
+func (s *YAMLStore) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for scope, files := range s.data {
+		for category, f := range files {
+			for i, e := range f.Entries {
+				if e.ID == id {
+					f.Entries = append(f.Entries[:i], f.Entries[i+1:]...)
+					return s.persist(scope, category)
+				}
+			}
+		}
+	}
+	return fmt.Errorf("entry %q not found", id)
+}
+
+func (s *YAMLStore) flushLoop() {
+	t := time.NewTicker(flushInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			_ = s.flush()
+		case <-s.done:
+			return
+		}
+	}
+}
+
 // markHits increments HitCount and sets LastHit for the entries in s.data that match the given slice.
 func (s *YAMLStore) markHits(entries []store.Entry) {
 	if !s.autoHitCounting || len(entries) == 0 {
@@ -362,42 +398,6 @@ func (s *YAMLStore) flush() error {
 		}
 	}
 	return nil
-}
-
-func (s *YAMLStore) Score(id string, delta float64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for scope, files := range s.data {
-		for category, f := range files {
-			for idx, entry := range f.Entries {
-				if entry.ID == id {
-					f.Entries[idx].Score = math.Max(0, entry.Score+delta)
-					if s.autoHitCounting {
-						f.Entries[idx].HitCount++
-						f.Entries[idx].LastHit = time.Now()
-					}
-					return s.persist(scope, category)
-				}
-			}
-		}
-	}
-	return fmt.Errorf("entry %q not found", id)
-}
-
-func (s *YAMLStore) Delete(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for scope, files := range s.data {
-		for category, f := range files {
-			for i, e := range f.Entries {
-				if e.ID == id {
-					f.Entries = append(f.Entries[:i], f.Entries[i+1:]...)
-					return s.persist(scope, category)
-				}
-			}
-		}
-	}
-	return fmt.Errorf("entry %q not found", id)
 }
 
 // loadScope scans dir for *.yaml files and loads each as a separate category.

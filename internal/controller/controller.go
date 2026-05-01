@@ -182,17 +182,6 @@ func (mc *MemoryController) Promote(id string, targetScope store.Scope) error {
 	return mc.store.Promote(id, targetScope)
 }
 
-func (mc *MemoryController) doUpsert(entry *store.Entry) error {
-	err := mc.store.Upsert(entry)
-	if err != nil {
-		return err
-	}
-	if mc.embedder.Available() {
-		mc.indexManager.IndexEntry(entry, mc.embedder.EmbedSingle)
-	}
-	return nil
-}
-
 // Save persists an entry without controller-level semantic deduplication and keeps the vector index in sync when available.
 func (mc *MemoryController) Save(entry *store.Entry) error {
 	return mc.doUpsert(entry)
@@ -468,6 +457,17 @@ func (mc *MemoryController) BuildIndexes(force bool) error {
 	}
 
 	return mc.indexManager.BuildIndexes(entries, force, mc.embedder.Embed)
+}
+
+func (mc *MemoryController) doUpsert(entry *store.Entry) error {
+	err := mc.store.Upsert(entry)
+	if err != nil {
+		return err
+	}
+	if mc.embedder.Available() {
+		mc.indexManager.IndexEntry(entry, mc.embedder.EmbedSingle)
+	}
+	return nil
 }
 
 func (mc *MemoryController) flushLoop() {

@@ -1,7 +1,36 @@
 version: "2"
 
+severity:
+  default: error
+
+run:
+  timeout: 5m
+  tests: false
+  modules-download-mode: readonly
+
 linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - unused
+    - funcorder
+    - copyloopvar
+    - ineffassign
+    - misspell
+    - errcheck
   settings:
+    funcorder:
+      constructor: false
+    revive:
+      severity: warning
+      rules:
+        - name: line-length-limit
+          severity: warning
+          arguments: [180]
+        - name: defer
+          severity: error
+          arguments: [[loop, return, recover]]
     errcheck:
       # List of functions to exclude from checking, where each entry is a single function to exclude.
       # See https://github.com/kisielk/errcheck#excluding-functions for details.
@@ -15,3 +44,60 @@ linters:
         - (*github.com/jimschubert/mnemonic/internal/controller.MemoryController).Close
         - (*github.com/jimschubert/mnemonic/internal/compact.Compacter).Close
         - (*github.com/modelcontextprotocol/go-sdk/mcp.ClientSession).Close
+
+    misspell:
+      locale: US
+
+    govet:
+      # Disable all analyzers.
+      # Default: false
+      disable-all: true
+      # Enable analyzers by name.
+      # (In addition to default:
+      #   appends, asmdecl, assign, atomic, bools, buildtag, cgocall, composites, copylocks, defers, directive, errorsas,
+      #   framepointer, httpresponse, ifaceassert, loopclosure, lostcancel, nilfunc, printf, shift, sigchanyzer, slog,
+      #   stdmethods, stringintconv, structtag, testinggoroutine, tests, timeformat, unmarshal, unreachable, unsafeptr,
+      #   unusedresult
+      # ).
+      # Run `GL_DEBUG=govet golangci-lint run --enable=govet` to see default, all available analyzers, and enabled analyzers.
+      # Default: []
+      enable:
+        # Check for missing values after append.
+        - appends
+        # Check for useless assignments.
+        - assign
+        # Check for common mistakes using the sync/atomic package.
+        - atomic
+        # Check for non-64-bits-aligned arguments to sync/atomic functions.
+        - atomicalign
+        # Report common mistakes in defer statements.
+        - defers
+        # Check references to loop variables from within nested functions.
+        - loopclosure
+        # Check for useless comparisons between functions and nil.
+        - nilfunc
+        # Check for redundant or impossible nil comparisons.
+        - nilness
+        # Check for invalid structured logging calls.
+        - slog
+        # Report calls to (*testing.T).Fatal from goroutines started by a test.
+        - testinggoroutine
+        # Check for common mistaken usages of tests and examples.
+        - tests
+        # Check for calls of (time.Time).Format or time.Parse with 2006-02-01.
+        - timeformat
+        # Report passing non-pointer or non-interface values to unmarshal.
+        - unmarshal
+        # Check for unreachable code.
+        - unreachable
+        # Check for misuses of sync.WaitGroup.
+        - waitgroup
+formatters:
+  settings:
+    gofumpt:
+      # Module path which contains the source code being formatted.
+      # Default: ""
+      module-path: github.com/org/project
+      # Choose whether to use the extra rules.
+      # Default: false
+      extra-rules: true

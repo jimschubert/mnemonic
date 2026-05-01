@@ -66,12 +66,6 @@ func (m *hnswManager) Close() error {
 	return m.Flush()
 }
 
-func (m *hnswManager) markDirty() {
-	m.metaMu.Lock()
-	defer m.metaMu.Unlock()
-	m.dirty = true
-}
-
 func (m *hnswManager) Load() error {
 	meta, err := loadMetadata(m.metaPath)
 	if err != nil {
@@ -278,4 +272,10 @@ func (m *hnswManager) BuildIndexes(entries []store.Entry, force bool, embed func
 
 	m.markDirty()
 	return m.Flush()
+}
+
+func (m *hnswManager) markDirty() {
+	m.metaMu.Lock()
+	defer m.metaMu.Unlock()
+	m.dirty = true
 }
