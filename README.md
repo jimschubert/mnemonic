@@ -210,7 +210,7 @@ Example `mnemonic_add` input:
 * `mnemonic server` starts the HTTP MCP proxy and auto-starts the daemon if needed.
     * The daemon serves the Unix socket API; the server forwards HTTP requests to it.
     * If the daemon stops while `mnemonic server` is still running, requests fail with `502 Bad Gateway` until the daemon is started again.
-* `mnemonic stop` asks the running daemon to shut down cleanly.
+* `mnemonic stop` asks the running daemon to shut down cleanly. `mnemonic daemon stop` is equivalent.
     * To avoid stale sessions and errors, any open `stdio` processes will detect the shutdown and exit.
 
 The daemon serves the Unix socket API by default. `mnemonic server` exposes the HTTP MCP proxy on top of it.
@@ -278,15 +278,37 @@ That means important memories stay visible, but stale memories naturally decay o
 mnemonic --help
 ```
 
-| Command              | Description                                                                                |
-|----------------------|--------------------------------------------------------------------------------------------|
-| `mnemonic stdio`     | Serve MCP over stdio and auto-start the daemon if needed                                   |
-| `mnemonic server`    | Start the HTTP MCP server and backing daemon                                               |
-| `mnemonic embed`     | Fetch embeddings and build or refresh the HNSW index                                       |
-| `mnemonic lint`      | Analyze memory store for redundancy and resolve issues interactively (requires embeddings) |
-| `mnemonic store`     | Interact with the memory store directly (daemon must be running)                           |
-| `mnemonic stop`      | Request shutdown of the running daemon                                                     |
-| `mnemonic compact`   | Compact the text of all memories in the store to reduce token usage                        |
+| Command                | Description                                                                                |
+|------------------------|--------------------------------------------------------------------------------------------|
+| `mnemonic stdio`       | Serve MCP over stdio and auto-start the daemon if needed                                   |
+| `mnemonic server`      | Start the HTTP MCP server and backing daemon                                               |
+| `mnemonic daemon`      | Manage the background daemon process (subcommands: `start`, `stop`, `status`)             |
+| `mnemonic embed`       | Fetch embeddings and build or refresh the HNSW index                                       |
+| `mnemonic lint`        | Analyze memory store for redundancy and resolve issues interactively (requires embeddings) |
+| `mnemonic store`       | Interact with the memory store directly (daemon must be running)                           |
+| `mnemonic stop`        | Request shutdown of the running daemon (alias for `daemon stop`)                           |
+| `mnemonic compact`     | Compact the text of all memories in the store to reduce token usage                        |
+
+### `daemon` subcommands
+
+| Command                | Description                                          |
+|------------------------|------------------------------------------------------|
+| `mnemonic daemon`      | Start the background daemon process (default)        |
+| `mnemonic daemon start`| Start the background daemon process                  |
+| `mnemonic daemon stop` | Send a shutdown request to the running daemon        |
+| `mnemonic daemon status` | Show daemon status: socket path, uptime, version   |
+
+### `store` subcommands
+
+| Command                        | Description                                                        |
+|--------------------------------|--------------------------------------------------------------------|
+| `mnemonic store query`         | Query the memory store                                             |
+| `mnemonic store add`           | Add an entry to the memory store                                   |
+| `mnemonic store get <id>`      | Inspect a single entry in detail                                   |
+| `mnemonic store list`          | List entries with optional `--scope` and `--category` filters      |
+| `mnemonic store delete <id>`   | Delete an entry by ID                                              |
+| `mnemonic store list-heads`    | List all memory categories with entry counts                       |
+| `mnemonic store reinforce`     | Adjust a memory entry's relevance score                            |
 
 Run `mnemonic <command> --help` for options or subcommands.
 
@@ -321,14 +343,22 @@ mnemonic embed --force
 # Clean up your memory store (merge/delete)
 mnemonic lint --threshold 0.85
 
+# Daemon lifecycle
+mnemonic daemon status
+mnemonic daemon stop    # or: mnemonic stop
+
 # Interact with the store outside of an agent (daemon must be running)
 mnemonic store query --query "Go error handling" --category syntax
 mnemonic store query --query "workflow safety" --category avoidance,security
 mnemonic store add --content "Example pattern" --category syntax --tags go,error
 mnemonic store list-heads
+mnemonic store list
+mnemonic store list --scope project --category syntax
+mnemonic store get <id>
+mnemonic store delete <id>
 mnemonic store reinforce --id go-error-wrapping --delta 0.1
 
-# Stop the server and daemon
+# Stop the daemon
 mnemonic stop
 ```
 
