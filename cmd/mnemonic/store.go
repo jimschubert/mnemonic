@@ -38,7 +38,7 @@ func socketSend(conf config.Config, tool string, payload map[string]any) (map[st
 	if err != nil {
 		return nil, fmt.Errorf("connecting to MCP server: %w", err)
 	}
-	defer session.Close() // nolint:errcheck
+	defer session.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

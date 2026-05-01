@@ -21,7 +21,7 @@ func (c *GetCmd) Run(_ *slog.Logger, conf config.Config) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
-	defer w.Flush() //nolint:errcheck
+	defer w.Flush()
 
 	printer := storeEntryPrinter{width: 80, labelWidth: 18}
 	printer.printEntry(w, *entry)

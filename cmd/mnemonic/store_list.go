@@ -38,12 +38,12 @@ func (c *ListCmd) Run(_ *slog.Logger, conf config.Config) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
-	defer w.Flush() //nolint:errcheck
+	defer w.Flush()
 	printer := storeEntryPrinter{width: 80, labelWidth: 18}
 
 	for i, entry := range entries {
 		if i > 0 {
-			fmt.Fprintf(w, "%s\n", strings.Repeat("-", printer.width)) //nolint:errcheck
+			fmt.Fprintf(w, "%s\n", strings.Repeat("-", printer.width))
 		}
 		printer.printEntry(w, entry)
 	}

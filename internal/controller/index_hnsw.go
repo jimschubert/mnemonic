@@ -90,7 +90,7 @@ func (m *hnswManager) Load() error {
 		}
 		return fmt.Errorf("opening index: %w", err)
 	}
-	defer f.Close() // nolint:errcheck
+	defer f.Close()
 
 	if err := m.idx.Import(m.conf, f); err != nil {
 		return fmt.Errorf("importing index: %w", err)
@@ -118,7 +118,7 @@ func (m *hnswManager) Flush() error {
 	if err != nil {
 		return fmt.Errorf("creating index file: %w", err)
 	}
-	defer f.Close() // nolint:errcheck
+	defer f.Close()
 
 	m.mu.RLock()
 	err = m.idx.Export(f)

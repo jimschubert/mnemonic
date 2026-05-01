@@ -226,7 +226,7 @@ func TestNew_SyncIndexesExistingEntries(t *testing.T) {
 		WithLogger(testLogger()),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	assert.Equal(t, 2, len(idx.vectors))
 	_, ok := mc.indexManager.LookupVector("a")
@@ -253,7 +253,7 @@ func TestNew_EmbedderUnavailable_Passthrough(t *testing.T) {
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	assert.Equal(t, 0, len(idx.vectors))
 	assert.Equal(t, 0, emb.calls)
@@ -275,7 +275,7 @@ func TestUpsert_IndexesNewEntry(t *testing.T) {
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	entry := &store.Entry{ID: "new1", Content: "new entry", Category: "domain"}
 	assert.NoError(t, mc.Upsert(entry))
@@ -309,7 +309,7 @@ func TestNew_MissingIndexFileClearsStaleMetadata(t *testing.T) {
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 	_, ok := mc.indexManager.LookupVector("live")
 	assert.True(t, ok, "live entry should remain indexed")
 	_, ok = idx.vectors["live"]
@@ -385,7 +385,7 @@ func TestUpsert_DeduplicatesOnlyWithinCategoryAndScope(t *testing.T) {
 				WithSkipInitialSync(true),
 			)
 			assert.NoError(t, err)
-			defer mc.Close() // nolint:errcheck
+			defer mc.Close()
 
 			entry := &store.Entry{
 				ID:       "new-entry",
@@ -431,7 +431,7 @@ func TestSave_SkipsSemanticDeduplication(t *testing.T) {
 		WithSkipInitialSync(true),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	entry := &store.Entry{
 		ID:       "entry-to-compact",
@@ -471,7 +471,7 @@ func TestSave_UpdatesIndexWithoutDeduplication(t *testing.T) {
 		WithSkipInitialSync(true),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	entry := &store.Entry{
 		ID:       "existing",
@@ -505,7 +505,7 @@ func TestDelete_RemovesFromIndex(t *testing.T) {
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	_, ok1 := mc.indexManager.LookupVector("del1")
 	assert.True(t, ok1, "entry should be indexed before delete")
@@ -535,7 +535,7 @@ func TestSemanticSearch_ReturnsResults(t *testing.T) {
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	results, err := mc.SemanticSearch("go patterns", 5, nil, nil)
 	assert.NoError(t, err)
@@ -558,7 +558,7 @@ func TestSemanticSearch_UnavailableReturnsNil(t *testing.T) {
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	results, err := mc.SemanticSearch("anything", 5, nil, nil)
 	assert.NoError(t, err)
@@ -584,7 +584,7 @@ func TestSemanticSearch_FiltersByScope(t *testing.T) {
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	results, err := mc.SemanticSearch("entry", 5, []store.Scope{"project"}, nil)
 	assert.NoError(t, err)
@@ -620,7 +620,7 @@ func TestSemanticSearch_FiltersByCategory(t *testing.T) {
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	results, err := mc.SemanticSearch("entry", 5, nil, []string{"security"})
 	assert.NoError(t, err)
@@ -656,7 +656,7 @@ func TestSemanticSearch_PrefersHigherWeightedScoreOnDistanceTie(t *testing.T) {
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	results, err := mc.SemanticSearch("tie", 5, nil, nil)
 	assert.NoError(t, err)
@@ -681,7 +681,7 @@ func TestFlushIndex_SkipsWhenNotDirty(t *testing.T) {
 		WithMnemonicDir(dir),
 	)
 	assert.NoError(t, err)
-	defer mc.Close() // nolint:errcheck
+	defer mc.Close()
 
 	assert.NoError(t, mc.indexManager.Flush())
 

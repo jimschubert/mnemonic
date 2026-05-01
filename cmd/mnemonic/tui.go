@@ -28,7 +28,7 @@ type compactProgress struct {
 //goland:noinspection GoUnhandledErrorResult
 func (p *compactProgress) write(i int, done bool, status string) {
 	if !p.interactive {
-		os.Stdout.WriteString(".") //nolint:errcheck
+		os.Stdout.WriteString(".")
 		return
 	}
 	current := i

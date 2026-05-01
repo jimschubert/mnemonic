@@ -142,7 +142,7 @@ func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 		if err != nil {
 			return fmt.Errorf("creating controller: %w", err)
 		}
-		defer ctrl.Close() // nolint:errcheck
+		defer ctrl.Close()
 		backend = ctrl
 	}
 
@@ -150,7 +150,7 @@ func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 		compact.WithLogger(logging.ForScope(conf, "compact")),
 		compact.WithCavemanMode(cavemanMode),
 	)
-	defer compacter.Close() // nolint:errcheck
+	defer compacter.Close()
 
 	entries, err := backend.All(slices.Collect(maps.Keys(scopes)))
 	if err != nil {

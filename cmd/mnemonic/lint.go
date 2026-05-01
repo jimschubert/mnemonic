@@ -151,7 +151,7 @@ func (c *LintCmd) Run(_ *slog.Logger, conf config.Config) error {
 			return err
 		}
 		backend = ctrl
-		defer ctrl.Close() // nolint:errcheck
+		defer ctrl.Close()
 	}
 
 	l := lint.New(ctrl)

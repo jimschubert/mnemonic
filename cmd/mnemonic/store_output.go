@@ -25,34 +25,34 @@ func (p storeEntryPrinter) contentWrapWidth() int {
 }
 
 func (p storeEntryPrinter) printEntry(w io.Writer, entry store.Entry) {
-	fmt.Fprintf(w, "id:\t%s\n", entry.ID) //nolint:errcheck
+	fmt.Fprintf(w, "id:\t%s\n", entry.ID)
 
 	contentLines := p.wrapContent(entry.Content)
 
-	fmt.Fprintf(w, "content:\t%s\n", contentLines[0]) //nolint:errcheck
+	fmt.Fprintf(w, "content:\t%s\n", contentLines[0])
 	for _, line := range contentLines[1:] {
 		// subsequent lines need a \t prefix to align properly under the content label
-		fmt.Fprintf(w, "\t%s\n", line) //nolint:errcheck
+		fmt.Fprintf(w, "\t%s\n", line)
 	}
 
-	fmt.Fprintf(w, "category:\t%s\n", entry.Category) //nolint:errcheck
-	fmt.Fprintf(w, "scope:\t%s\n", entry.Scope)       //nolint:errcheck
+	fmt.Fprintf(w, "category:\t%s\n", entry.Category)
+	fmt.Fprintf(w, "scope:\t%s\n", entry.Scope)
 
 	if len(entry.Tags) > 0 {
-		fmt.Fprintf(w, "tags:\t%s\n", strings.Join(entry.Tags, ", ")) //nolint:errcheck
+		fmt.Fprintf(w, "tags:\t%s\n", strings.Join(entry.Tags, ", "))
 	}
 
-	fmt.Fprintf(w, "score:\t%.4f\n", entry.Score)      //nolint:errcheck
-	fmt.Fprintf(w, "hit_count:\t%d\n", entry.HitCount) //nolint:errcheck
+	fmt.Fprintf(w, "score:\t%.4f\n", entry.Score)
+	fmt.Fprintf(w, "hit_count:\t%d\n", entry.HitCount)
 
 	if !entry.LastHit.IsZero() {
-		fmt.Fprintf(w, "last_hit:\t%s\n", entry.LastHit.Format(time.RFC3339)) //nolint:errcheck
+		fmt.Fprintf(w, "last_hit:\t%s\n", entry.LastHit.Format(time.RFC3339))
 	}
 
-	fmt.Fprintf(w, "created:\t%s\n", entry.Created.Format(time.RFC3339)) //nolint:errcheck
+	fmt.Fprintf(w, "created:\t%s\n", entry.Created.Format(time.RFC3339))
 
 	if entry.Source != "" {
-		fmt.Fprintf(w, "source:\t%s\n", entry.Source) //nolint:errcheck
+		fmt.Fprintf(w, "source:\t%s\n", entry.Source)
 	}
 }
 

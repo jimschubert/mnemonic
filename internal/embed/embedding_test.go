@@ -114,7 +114,7 @@ func TestHttpEmbedder_Embed(t *testing.T) {
 						{Embedding: []float64{0.4, 0.5, 0.6}},
 					},
 				}
-				_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
+				_ = json.NewEncoder(w).Encode(resp)
 			},
 			wantErr: false,
 			validateResp: func(t *testing.T, resp [][]float32) {
@@ -152,7 +152,7 @@ func TestHttpEmbedder_Embed(t *testing.T) {
 						Embedding []float64 `json:"embedding"`
 					}{},
 				}
-				_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
+				_ = json.NewEncoder(w).Encode(resp)
 			},
 			wantErr: true,
 			errMsg:  "embedding response missing data",
@@ -211,7 +211,7 @@ func TestHttpEmbedder_EmbedSingle(t *testing.T) {
 						{Embedding: []float64{0.1, 0.2, 0.3}},
 					},
 				}
-				_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
+				_ = json.NewEncoder(w).Encode(resp)
 			},
 			wantErr: false,
 			validateResp: func(t *testing.T, resp []float32) {
@@ -277,10 +277,10 @@ func TestHttpEmbedder_DoRequest(t *testing.T) {
 			model: "my-model",
 			serverHandler: func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
-				defer r.Body.Close() // nolint:errcheck
+				defer r.Body.Close()
 
 				var req request
-				_ = json.Unmarshal(body, &req) // nolint:errcheck
+				_ = json.Unmarshal(body, &req)
 				assert.Equal(t, "my-model", req.Model)
 				assert.Equal(t, []string{"hello", "world"}, req.Input)
 				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -294,7 +294,7 @@ func TestHttpEmbedder_DoRequest(t *testing.T) {
 						{Embedding: []float64{0.2}},
 					},
 				}
-				_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
+				_ = json.NewEncoder(w).Encode(resp)
 			},
 			wantErr: false,
 		},
@@ -305,10 +305,10 @@ func TestHttpEmbedder_DoRequest(t *testing.T) {
 			authToken: "test-token",
 			serverHandler: func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
-				defer r.Body.Close() // nolint:errcheck
+				defer r.Body.Close()
 
 				var req request
-				_ = json.Unmarshal(body, &req) // nolint:errcheck
+				_ = json.Unmarshal(body, &req)
 				assert.Equal(t, "my-model", req.Model)
 				assert.Equal(t, []string{"hi"}, req.Input)
 				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
@@ -322,7 +322,7 @@ func TestHttpEmbedder_DoRequest(t *testing.T) {
 						{Embedding: []float64{0.1}},
 					},
 				}
-				_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
+				_ = json.NewEncoder(w).Encode(resp)
 			},
 			wantErr: false,
 		},
@@ -399,7 +399,7 @@ func TestHttpEmbedder_Preflight(t *testing.T) {
 						{Embedding: []float64{0.1, 0.2, 0.3}},
 					},
 				}
-				_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
+				_ = json.NewEncoder(w).Encode(resp)
 			},
 			wantErr: false,
 		},
@@ -417,7 +417,7 @@ func TestHttpEmbedder_Preflight(t *testing.T) {
 						{Embedding: []float64{0.1, 0.2, 0.3, 0.4, 0.5}},
 					},
 				}
-				_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
+				_ = json.NewEncoder(w).Encode(resp)
 			},
 			wantErr: true,
 			errMsg:  "embedding dimensions mismatch",
@@ -496,7 +496,7 @@ func TestHttpEmbedder_PreflightOnlyRunsOnce(t *testing.T) {
 				{Embedding: []float64{0.1, 0.2, 0.3}},
 			},
 		}
-		_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -554,7 +554,7 @@ func TestHttpEmbedder_RequestJSONEncoding(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
-				defer r.Body.Close() // nolint:errcheck
+				defer r.Body.Close()
 
 				var req request
 				err := json.Unmarshal(body, &req)
@@ -570,7 +570,7 @@ func TestHttpEmbedder_RequestJSONEncoding(t *testing.T) {
 						{Embedding: []float64{0.1}},
 					},
 				}
-				_ = json.NewEncoder(w).Encode(resp) // nolint:errcheck
+				_ = json.NewEncoder(w).Encode(resp)
 			}))
 			defer server.Close()
 

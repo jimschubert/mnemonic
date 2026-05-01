@@ -119,7 +119,7 @@ func (e *HttpEmbedder) doRequest(text ...string) (*response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("embedding request failed: %w", err)
 	}
-	defer resp.Body.Close() // nolint:errcheck
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("embedding endpoint returned %d", resp.StatusCode)
