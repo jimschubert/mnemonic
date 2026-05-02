@@ -25,6 +25,9 @@ type IndexManager interface {
 	// RemoveFromIndex deletes an entry from the index.
 	RemoveFromIndex(id string)
 
+	// LookupVector returns the stored vector for the given entry ID, if present.
+	LookupVector(id string) ([]float32, bool)
+
 	// Validate checks that the index is healthy.
 	Validate() error
 }
