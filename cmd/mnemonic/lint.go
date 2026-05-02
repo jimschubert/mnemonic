@@ -209,6 +209,7 @@ func (m lintModel) Init() tea.Cmd {
 }
 
 func (m lintModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// nolint:gocritic
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {

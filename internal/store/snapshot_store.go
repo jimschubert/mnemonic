@@ -118,7 +118,7 @@ func (s *SnapshotStore) Score(id string, delta float64) error {
 	if !ok {
 		return fmt.Errorf("entry %q not found", id)
 	}
-	entry.Score = entry.Score + delta
+	entry.Score += delta
 	if entry.Score < 0 {
 		entry.Score = 0
 	}

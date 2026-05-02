@@ -19,6 +19,7 @@ linters:
     - ineffassign
     - misspell
     - errcheck
+    - gocritic
   settings:
     funcorder:
       constructor: false
