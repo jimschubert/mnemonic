@@ -456,6 +456,22 @@ more than a few dozen memories.
 The default embedding settings are aimed at a local LM Studio-compatible endpoint, but any
 compatible embeddings API should work if it returns vectors with the configured dimensions.
 
+## Alternate Stores
+
+The initial design of `mnemonic` supports local YAML files which can be versioned controlled and edited directly.
+If you don't care about version control or manual file editing, you can opt-in to the SQLite store. This is a store
+which is managed by the `wasm` embedded SQLite with the sqlite-vec extension (see notes below regarding macOS).
+
+To configure, add the following to your config.yaml:
+
+```yaml
+store:
+  type: sqlite
+  sqlite_path: ~/.mnemonic/store.db
+```
+
+Command supporting the SQLite store also expose these as flags - run `--help` for details.
+
 ## Notes
 
 ### macOS: sqlite3 extension loading
