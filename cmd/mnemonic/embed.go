@@ -2,10 +2,14 @@ package main
 
 import (
 	"log/slog"
+	"maps"
+	"slices"
 
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/controller"
 	"github.com/jimschubert/mnemonic/internal/logging"
+	"github.com/jimschubert/mnemonic/internal/store"
+	"github.com/jimschubert/mnemonic/internal/store/sqlitestore"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 )
 
@@ -48,20 +52,37 @@ type EmbedCmd struct {
 	Force bool `help:"Overwrite existing index"`
 
 	Embedding embeddable `embed:"" prefix:"embedding-"`
+	Store     storeFlags `embed:"" prefix:"store-"`
 }
 
 func (e *EmbedCmd) Run(logger *slog.Logger, conf config.Config) error {
 	e.Embedding.applyConfig(&conf)
+	e.Store.applyConfig(&conf)
 
 	scopes := createScopes(e.GlobalDir, e.LocalDir, e.Team)
-	ys, err := yamlstore.New(scopes, logging.ForScope(conf, "store"), yamlstore.WithAutoHitCounting(false))
+	var st store.Store
+	var err error
+	switch conf.Store.Type {
+	case "sqlite":
+		sqlitePath := conf.SQLiteStorePath()
+		logger.Info("using SQLite store for embedding", "store_type", "sqlite", "sqlite_path", sqlitePath)
+		st, err = sqlitestore.New(sqlitePath,
+			logging.ForScope(conf, "store"),
+			sqlitestore.WithConfiguredScopes(slices.Collect(maps.Keys(scopes))),
+			sqlitestore.WithAutoHitCounting(false),
+		)
+	default:
+		logger.Info("using YAML store for embedding", "store_type", "yaml")
+		st, err = yamlstore.New(scopes, logging.ForScope(conf, "store"), yamlstore.WithAutoHitCounting(false))
+	}
+
 	if err != nil {
 		return err
 	}
 
 	logger.Info("embedding data", "endpoint", conf.Embeddings.Endpoint, "model", conf.Embeddings.Model)
 	ctrl, err := controller.New(conf,
-		controller.WithStore(ys),
+		controller.WithStore(st),
 		controller.WithLogger(logger),
 		controller.WithSkipInitialSync(true),
 		controller.WithMnemonicDir(e.GlobalDir),

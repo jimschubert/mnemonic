@@ -17,7 +17,6 @@ import (
 	"github.com/jimschubert/mnemonic/internal/embed"
 	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store"
-	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 )
 
 // TODO: make flush configurable
@@ -71,17 +70,7 @@ func New(conf config.Config, opts ...Option) (*MemoryController, error) {
 	}
 
 	if o.store == nil {
-		s, err := yamlstore.New(map[store.Scope]string{
-			store.ScopeGlobal: filepath.Join(o.mnemonicDir, "global"),
-			"project":         ".mnemonic/project",
-		}, logging.ForScope(conf, "store"))
-		if err != nil {
-			return nil, fmt.Errorf("constructing store: %w", err)
-		}
-		o.logger.Info("creating default store (global, project)", "type", "yaml", "scopes", []string{
-			store.ScopeGlobal.String(), "project",
-		})
-		o.store = s
+		return nil, errors.New("no store provided to controller")
 	}
 
 	dir := expandHome(o.mnemonicDir)

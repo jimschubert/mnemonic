@@ -251,3 +251,96 @@ func TestSortFallbackWhenSQLWeightedSortDisabled(t *testing.T) {
 	assert.Equal(t, "high", all[0].ID)
 	assert.Equal(t, "low", all[1].ID)
 }
+
+func TestWithConfiguredScopes_QueriesFilterToScope(t *testing.T) {
+	s := newTestStore(t, WithConfiguredScopes([]store.Scope{store.ScopeGlobal, "project"}))
+
+	entries := []store.Entry{
+		{
+			ID:       "global-domain",
+			Content:  "global entry",
+			Tags:     []string{"go"},
+			Category: "domain",
+			Scope:    store.ScopeGlobal.String(),
+			Score:    1.0,
+			Created:  time.Now().Add(-3 * time.Hour),
+			Source:   "test",
+		},
+		{
+			ID:       "project-domain",
+			Content:  "project entry",
+			Tags:     []string{"go"},
+			Category: "domain",
+			Scope:    "project",
+			Score:    1.0,
+			Created:  time.Now().Add(-2 * time.Hour),
+			Source:   "test",
+		},
+		{
+			ID:       "team-domain",
+			Content:  "team entry",
+			Tags:     []string{"go"},
+			Category: "domain",
+			Scope:    "team",
+			Score:    1.0,
+			Created:  time.Now().Add(-1 * time.Hour),
+			Source:   "test",
+		},
+	}
+
+	for i := range entries {
+		assert.NoError(t, s.Upsert(&entries[i]))
+	}
+
+	allDefault, err := s.All(nil)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(allDefault))
+
+	tagHits, err := s.Query("domain", []string{"go"})
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(tagHits))
+
+	projectOnly, err := s.All([]store.Scope{"project"})
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(projectOnly))
+	assert.Equal(t, "project", projectOnly[0].Scope)
+
+	_, err = s.All([]store.Scope{"team"})
+	assert.Error(t, err)
+
+	_, err = s.QueryByCategory("domain", "entry", 0, []store.Scope{"team"})
+	assert.Error(t, err)
+
+	_, err = s.ListHeads([]store.Scope{"team"})
+	assert.Error(t, err)
+}
+
+func TestWithConfiguredScopes_ModifyWithAnyScope(t *testing.T) {
+	s := newTestStore(t, WithConfiguredScopes([]store.Scope{store.ScopeGlobal}))
+
+	assert.NoError(t, s.Upsert(&store.Entry{
+		ID:       "outside",
+		Content:  "outside configured scopes",
+		Category: "domain",
+		Scope:    "team",
+		Score:    1.0,
+		Created:  time.Now().Add(-1 * time.Hour),
+		Source:   "test",
+	}))
+
+	assert.NoError(t, s.Upsert(&store.Entry{
+		ID:       "movable",
+		Content:  "promote me",
+		Category: "domain",
+		Scope:    store.ScopeGlobal.String(),
+		Score:    1.0,
+		Created:  time.Now().Add(-1 * time.Hour),
+		Source:   "test",
+	}))
+
+	assert.NoError(t, s.Promote("movable", "team"))
+
+	entry, err := s.Get("movable")
+	assert.NoError(t, err)
+	assert.Equal(t, "team", entry.Scope)
+}

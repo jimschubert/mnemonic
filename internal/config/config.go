@@ -16,6 +16,11 @@ import (
 
 var Version = "0.1.0"
 
+type Store struct {
+	Type          string `yaml:"type" env:"TYPE,default=yaml"`
+	SQLitePathRaw string `yaml:"sqlite_path" env:"PATH,default=~/.mnemonic/store.db"`
+}
+
 // Index holds configuration for the vector index.
 type Index struct {
 	Type        string  `yaml:"type" env:"TYPE,default=sqlite"`
@@ -51,6 +56,7 @@ type Config struct {
 	UnauthenticatedStatus bool       `yaml:"unauthenticated_status" env:"MNEMONIC_UNAUTHENTICATED_STATUS"`
 	Embeddings            Embeddings `yaml:"embeddings" env:", prefix=MNEMONIC_EMBEDDINGS_"`
 	Index                 Index      `yaml:"index" env:", prefix=MNEMONIC_INDEX_"`
+	Store                 Store      `yaml:"store" env:", prefix=MNEMONIC_STORE_"`
 }
 
 func (c *Config) ClientTimeout() int {
@@ -72,6 +78,21 @@ func (c *Config) LogLevelFor(scope string) string {
 // SocketPath returns the expanded Unix socket path for daemon IPC.
 func (c *Config) SocketPath() string {
 	p := c.SocketPathRaw
+	if strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			p = filepath.Join(home, p[2:])
+		}
+	}
+	return p
+}
+
+// SQLiteStorePath returns the expanded file path for the SQLite store.
+func (c *Config) SQLiteStorePath() string {
+	p := c.Store.SQLitePathRaw
+	// if empty, use same default in the field's tag
+	if p == "" {
+		p = "~/.mnemonic/store.db"
+	}
 	if strings.HasPrefix(p, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			p = filepath.Join(home, p[2:])
@@ -139,6 +160,8 @@ func (c *Config) AsMap() map[string]string {
 	putIfNotZero(m, "index_connections", c.Index.Connections, strconv.Itoa)
 	putIfNotZero(m, "index_level_factor", c.Index.LevelFactor, formatFloat64)
 	putIfNotZero(m, "index_ef_search", c.Index.EfSearch, strconv.Itoa)
+	putIfNotZero(m, "store_type", c.Store.Type)
+	putIfNotZero(m, "store_path", c.Store.SQLitePathRaw)
 	return m
 }
 
@@ -157,11 +180,15 @@ func (c *Config) ToEnvMap() map[string]string {
 	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_ENDPOINT", c.Embeddings.Endpoint)
 	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_MODEL", c.Embeddings.Model)
 	putIfNotZero(m, "MNEMONIC_EMBEDDINGS_AUTH_TOKEN", c.Embeddings.AuthToken)
+
 	putIfNotZero(m, "MNEMONIC_INDEX_TYPE", c.Index.Type)
 	putIfNotZero(m, "MNEMONIC_INDEX_DIMENSIONS", c.Index.Dimensions, strconv.Itoa)
 	putIfNotZero(m, "MNEMONIC_INDEX_CONNECTIONS", c.Index.Connections, strconv.Itoa)
 	putIfNotZero(m, "MNEMONIC_INDEX_LEVEL_FACTOR", c.Index.LevelFactor, formatFloat64)
 	putIfNotZero(m, "MNEMONIC_INDEX_EF_SEARCH", c.Index.EfSearch, strconv.Itoa)
+
+	putIfNotZero(m, "MNEMONIC_STORE_TYPE", c.Store.Type)
+	putIfNotZero(m, "MNEMONIC_STORE_PATH", c.Store.SQLitePathRaw)
 
 	// keep zero value, always
 	m["MNEMONIC_EMBEDDINGS_SKIP_PREFLIGHT"] = strconv.FormatBool(c.Embeddings.SkipPreflight)
@@ -230,6 +257,13 @@ func (c *Config) ApplyOverrides(overrides Config) {
 	}
 	if overrides.Index.EfSearch != 0 {
 		c.Index.EfSearch = overrides.Index.EfSearch
+	}
+
+	if overrides.Store.Type != "" {
+		c.Store.Type = overrides.Store.Type
+	}
+	if overrides.Store.SQLitePathRaw != "" {
+		c.Store.SQLitePathRaw = overrides.Store.SQLitePathRaw
 	}
 }
 

@@ -20,6 +20,7 @@ linters:
     - misspell
     - errcheck
     - gocritic
+    - depguard
   settings:
     funcorder:
       constructor: false
@@ -48,6 +49,15 @@ linters:
 
     misspell:
       locale: US
+
+    depguard:
+      rules:
+        main:
+          files:
+            - $all
+          deny:
+            - pkg: github.com/ncruces/go-sqlite3/embed
+              desc: use github.com/asg017/sqlite-vec-go-bindings/ncruces so vec0 is available
 
     govet:
       # Disable all analyzers.

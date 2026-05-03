@@ -19,6 +19,8 @@ import (
 	"github.com/jimschubert/mnemonic/internal/daemon"
 	"github.com/jimschubert/mnemonic/internal/embed"
 	"github.com/jimschubert/mnemonic/internal/logging"
+	"github.com/jimschubert/mnemonic/internal/store"
+	"github.com/jimschubert/mnemonic/internal/store/sqlitestore"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 	"golang.org/x/term"
 )
@@ -28,15 +30,15 @@ type CompactCmd struct {
 	GlobalDir string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
 	LocalDir  string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
 	Team      []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
-
-	BaseURL string `default:"http://localhost:1234/v1" help:"Base URL of OpenAI-compatible /chat/completions API" env:"OPENAI_BASE_URL"`
-	ApiKey  string `default:"" help:"API key to access BaseURL" env:"OPENAI_API_KEY"`
-	Model   string `required:"" help:"Model to use for compaction"`
+	BaseURL   string   `default:"http://localhost:1234/v1" help:"Base URL of OpenAI-compatible /chat/completions API" env:"OPENAI_BASE_URL"`
+	ApiKey    string   `default:"" help:"API key to access BaseURL" env:"OPENAI_API_KEY"`
+	Model     string   `required:"" help:"Model to use for compaction"`
 
 	Caveman string `name:"caveman" default:"off" enum:"off,lite,full,ultra" help:"Caveman mode selection for more aggressive compaction (see https://juliusbrussee.github.io/caveman/)"`
 	Yes     bool   `help:"Skip the destructive caveman confirmation prompt"`
 
 	Embedding embeddable `embed:"" prefix:"embedding-"`
+	Store     storeFlags `embed:"" prefix:"store-"`
 }
 
 var (
@@ -101,6 +103,7 @@ func confirmCavemanMode(in io.Reader, out io.Writer, mode compact.CavemanMode, t
 //goland:noinspection GoUnhandledErrorResult
 func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 	c.Embedding.applyConfig(&conf)
+	c.Store.applyConfig(&conf)
 
 	cavemanMode := compact.ParseCavemanMode(c.Caveman)
 	if c.shouldConfirmCavemanMode(cavemanMode) {
@@ -121,16 +124,27 @@ func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 		backend = daemonEntryStoreBackend{client: newDaemonAdminClient(conf)}
 		isDaemonBackend = true
 	} else {
-		ys, err := yamlstore.New(scopes,
-			logging.ForScope(conf, "store"),
-			yamlstore.WithAutoHitCounting(false),
-		)
-		if err != nil {
-			return fmt.Errorf("creating YAML store: %w", err)
+		var st store.Store
+		var err error
+		switch conf.Store.Type {
+		case "sqlite":
+			sqlitePath := conf.SQLiteStorePath()
+			logger.Info("using SQLite store for compacting", "store_type", "sqlite", "sqlite_path", sqlitePath)
+			st, err = sqlitestore.New(sqlitePath,
+				logging.ForScope(conf, "store"),
+				sqlitestore.WithConfiguredScopes(slices.Collect(maps.Keys(scopes))),
+				sqlitestore.WithAutoHitCounting(false),
+			)
+		default:
+			logger.Info("using YAML store for compacting", "store_type", "yaml")
+			st, err = yamlstore.New(scopes, logging.ForScope(conf, "store"), yamlstore.WithAutoHitCounting(false))
 		}
 
+		if err != nil {
+			return err
+		}
 		ctrl, err = controller.New(conf,
-			controller.WithStore(ys),
+			controller.WithStore(st),
 			controller.WithLogger(logger),
 			controller.WithSkipInitialSync(true),
 			controller.WithMnemonicDir(c.GlobalDir),

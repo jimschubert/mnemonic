@@ -8,16 +8,17 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
-	_ "github.com/ncruces/go-sqlite3/embed"
 
 	"github.com/jimschubert/mnemonic/internal/store"
 )
@@ -26,7 +27,8 @@ import (
 type Option func(*options)
 
 type options struct {
-	autoHitCounting bool
+	autoHitCounting  bool
+	configuredScopes []store.Scope
 }
 
 // WithAutoHitCounting controls whether queries automatically increment HitCount and LastHit.
@@ -37,12 +39,22 @@ func WithAutoHitCounting(enabled bool) Option {
 	}
 }
 
+// WithConfiguredScopes sets the allowed (or default) scopes for query methods.
+// When set, queries which don't specify scopes will default to these, while queries providing scopes must be a subset of this set.
+// This applies to reads/queries. Writes (e.g. Upsert and Promote) are not constrained.
+func WithConfiguredScopes(scopes []store.Scope) Option {
+	return func(o *options) {
+		o.configuredScopes = append([]store.Scope(nil), scopes...)
+	}
+}
+
 type SQLiteStore struct {
-	mu              sync.RWMutex
-	db              *sql.DB
-	logger          *slog.Logger
-	autoHitCounting bool
-	sqlWeightedSort bool
+	mu               sync.RWMutex
+	db               *sql.DB
+	logger           *slog.Logger
+	autoHitCounting  bool
+	sqlWeightedSort  bool
+	configuredScopes map[store.Scope]struct{}
 }
 
 var _ store.Store = (*SQLiteStore)(nil)
@@ -75,9 +87,13 @@ func New(path string, logger *slog.Logger, opts ...Option) (*SQLiteStore, error)
 	}
 
 	s := &SQLiteStore{
-		db:              db,
-		logger:          logger,
-		autoHitCounting: o.autoHitCounting,
+		db:               db,
+		logger:           logger,
+		autoHitCounting:  o.autoHitCounting,
+		configuredScopes: make(map[store.Scope]struct{}, len(o.configuredScopes)),
+	}
+	for _, scope := range o.configuredScopes {
+		s.configuredScopes[scope] = struct{}{}
 	}
 
 	if err := s.ensureSchema(); err != nil {
@@ -371,20 +387,25 @@ func (s *SQLiteStore) ensureSchema() error {
 
 // entries constructs and executes the SQL query for retrieving entries with optional scopes and categories clauses.
 func (s *SQLiteStore) entries(scopes []store.Scope, category string) ([]store.Entry, error) {
+	queryScopes, err := s.resolveQueryScopes(scopes)
+	if err != nil {
+		return nil, err
+	}
+
 	baseQuery := `
 		SELECT id, content, tags, category, scope, score, hit_count, last_hit, created, source
 		FROM entries
 	`
 	whereClauses := make([]string, 0, 2)
-	args := make([]any, 0, len(scopes)+1)
+	args := make([]any, 0, len(queryScopes)+1)
 
 	if category != "" {
 		whereClauses = append(whereClauses, "category = ?")
 		args = append(args, category)
 	}
-	if len(scopes) > 0 {
-		placeholders := make([]string, len(scopes))
-		for i, scope := range scopes {
+	if len(queryScopes) > 0 {
+		placeholders := make([]string, len(queryScopes))
+		for i, scope := range queryScopes {
 			placeholders[i] = "?"
 			args = append(args, scope.String())
 		}
@@ -424,6 +445,30 @@ func (s *SQLiteStore) entries(scopes []store.Scope, category string) ([]store.En
 	}
 
 	return entries, nil
+}
+
+func (s *SQLiteStore) resolveQueryScopes(requested []store.Scope) ([]store.Scope, error) {
+	if len(s.configuredScopes) == 0 {
+		return requested, nil
+	}
+	if len(requested) == 0 {
+		return slices.Collect(maps.Keys(s.configuredScopes)), nil
+	}
+
+	resolved := make([]store.Scope, 0, len(requested))
+	seen := make(map[store.Scope]struct{}, len(requested))
+	for _, scope := range requested {
+		if _, ok := s.configuredScopes[scope]; !ok {
+			return nil, fmt.Errorf("scope %q is not configured", scope)
+		}
+		if _, ok := seen[scope]; ok {
+			continue
+		}
+		seen[scope] = struct{}{}
+		resolved = append(resolved, scope)
+	}
+
+	return resolved, nil
 }
 
 func (s *SQLiteStore) sortEntries(entries []store.Entry) {

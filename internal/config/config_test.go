@@ -259,6 +259,75 @@ func TestConfig_AsMapWithIndex(t *testing.T) {
 	assert.Equal(t, "25", m["index_ef_search"])
 }
 
+func TestConfig_AsMapWithStoreZeroValues(t *testing.T) {
+	t.Parallel()
+
+	c := Config{
+		LogLevel: "debug",
+		Store:    Store{},
+	}
+
+	m := c.AsMap()
+	_, hasType := m["store_type"]
+	assert.Equal(t, false, hasType)
+}
+
+func TestConfig_AsMapWithStore(t *testing.T) {
+	t.Parallel()
+
+	c := Config{
+		LogLevel: "debug",
+		Store: Store{
+			Type:          "sqlite",
+			SQLitePathRaw: "~/.mnemonic/custom.db",
+		},
+	}
+
+	m := c.AsMap()
+	assert.Equal(t, "sqlite", m["store_type"])
+	assert.Equal(t, "~/.mnemonic/custom.db", m["store_path"])
+}
+
+func TestConfig_SQLiteStorePath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		raw      string
+		expected string
+	}{
+		{
+			name:     "tilde expansion",
+			raw:      "~/.mnemonic/store.db",
+			expected: "", // will check containment instead
+		},
+		{
+			name:     "absolute path unchanged",
+			raw:      "/var/lib/mnemonic/store.db",
+			expected: "/var/lib/mnemonic/store.db",
+		},
+		{
+			name:     "relative path unchanged",
+			raw:      "./store.db",
+			expected: "./store.db",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := Config{Store: Store{SQLitePathRaw: tt.raw}}
+			p := c.SQLiteStorePath()
+			if tt.name == "tilde expansion" {
+				assert.False(t, filepath.IsAbs(tt.raw))
+				assert.True(t, filepath.IsAbs(p))
+			} else {
+				assert.Equal(t, tt.expected, p)
+			}
+		})
+	}
+}
+
 func TestLoad_FileOnly(t *testing.T) {
 	t.Parallel()
 
@@ -306,6 +375,8 @@ func TestLoad_MissingFileUsesDefaults(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "warn", cfg.LogLevel)
 	assert.Equal(t, "localhost:20001", cfg.ServerAddr)
+	assert.Equal(t, "yaml", cfg.Store.Type)
+	assert.Equal(t, "sqlite", cfg.Index.Type)
 }
 
 func TestLoad_LaterFileWins(t *testing.T) {
@@ -434,6 +505,21 @@ func TestConfig_ToEnvMapWithIndex(t *testing.T) {
 	assert.Equal(t, "40", m["MNEMONIC_INDEX_EF_SEARCH"])
 }
 
+func TestConfig_ToEnvMapWithStore(t *testing.T) {
+	t.Parallel()
+
+	c := Config{
+		Store: Store{
+			Type:          "sqlite",
+			SQLitePathRaw: "/var/lib/mnemonic/custom.db",
+		},
+	}
+
+	m := c.ToEnvMap()
+	assert.Equal(t, "sqlite", m["MNEMONIC_STORE_TYPE"])
+	assert.Equal(t, "/var/lib/mnemonic/custom.db", m["MNEMONIC_STORE_PATH"])
+}
+
 func TestConfig_ToEnvMapSkipsZeroIndexValues(t *testing.T) {
 	t.Parallel()
 
@@ -537,6 +623,72 @@ func TestConfig_ApplyOverrides(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "merge index configs",
+			base: Config{
+				Index: Index{
+					Type:        "hnsw",
+					Dimensions:  768,
+					Connections: 4,
+					LevelFactor: 20,
+					EfSearch:    60,
+				},
+			},
+			overrides: Config{
+				Index: Index{
+					Type:       "sqlite",
+					Dimensions: 512,
+					EfSearch:   25,
+				},
+			},
+			expected: Config{
+				Index: Index{
+					Type:        "sqlite",
+					Dimensions:  512,
+					Connections: 4,
+					LevelFactor: 20,
+					EfSearch:    25,
+				},
+			},
+		},
+		{
+			name: "merge store type",
+			base: Config{
+				Store: Store{
+					Type: "yaml",
+				},
+			},
+			overrides: Config{
+				Store: Store{
+					Type: "sqlite",
+				},
+			},
+			expected: Config{
+				Store: Store{
+					Type: "sqlite",
+				},
+			},
+		},
+		{
+			name: "merge store path",
+			base: Config{
+				Store: Store{
+					Type:          "sqlite",
+					SQLitePathRaw: "~/.mnemonic/store.db",
+				},
+			},
+			overrides: Config{
+				Store: Store{
+					SQLitePathRaw: "/tmp/custom.db",
+				},
+			},
+			expected: Config{
+				Store: Store{
+					Type:          "sqlite",
+					SQLitePathRaw: "/tmp/custom.db",
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -548,6 +700,7 @@ func TestConfig_ApplyOverrides(t *testing.T) {
 			assert.Equal(t, tt.expected.SocketPathRaw, tt.base.SocketPathRaw)
 			assert.Equal(t, tt.expected.ClientTimeoutSec, tt.base.ClientTimeoutSec)
 			assert.Equal(t, tt.expected.Logging, tt.base.Logging)
+			assert.Equal(t, tt.expected.Store, tt.base.Store)
 		})
 	}
 }

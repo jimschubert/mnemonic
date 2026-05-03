@@ -1,5 +1,9 @@
 package store
 
+import (
+	_ "github.com/asg017/sqlite-vec-go-bindings/ncruces"
+)
+
 // Scope represents a logical grouping for entries.
 // Examples of scopes include "global", "team:acme", "project:mnemonic".
 type Scope string

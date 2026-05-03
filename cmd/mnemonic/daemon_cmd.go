@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path/filepath"
+	"slices"
 
 	"github.com/jimschubert/mnemonic/internal/config"
 	"github.com/jimschubert/mnemonic/internal/controller"
 	"github.com/jimschubert/mnemonic/internal/daemon"
 	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store"
+	"github.com/jimschubert/mnemonic/internal/store/sqlitestore"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 	"github.com/muesli/reflow/wordwrap"
 )
@@ -44,21 +47,40 @@ type DaemonStartCmd struct {
 	SkipIndexSync bool     `help:"Skip initial index sync on startup; use when restarting or invoking embedding manually" env:"MNEMONIC_SKIP_INDEX_SYNC"`
 
 	Embedding embeddable `embed:"" prefix:"embedding-"`
+	Store     storeFlags `embed:"" prefix:"store-"`
 }
 
 func (c *DaemonStartCmd) Run(logger *slog.Logger, conf config.Config) error {
 	c.Embedding.applyConfig(&conf)
+	c.Store.applyConfig(&conf)
 
 	store.WithAdditionalMandatoryCategories(c.Mandatory)
 
 	scopes := createScopes(c.GlobalDir, c.LocalDir, c.Team)
-	ys, err := yamlstore.New(scopes, logging.ForScope(conf, "store"))
-	if err != nil {
-		return fmt.Errorf("creating YAML store: %w", err)
+	storeLogger := logging.ForScope(conf, "store")
+	var st store.Store
+	var err error
+
+	switch conf.Store.Type {
+	case "sqlite":
+		logger.Info("using SQLite store for daemon", "store_type", "sqlite", "sqlite_path", conf.SQLiteStorePath())
+		st, err = sqlitestore.New(conf.SQLiteStorePath(),
+			storeLogger,
+			sqlitestore.WithConfiguredScopes(slices.Collect(maps.Keys(scopes))),
+		)
+		if err != nil {
+			return fmt.Errorf("creating SQLite store: %w", err)
+		}
+	default:
+		logger.Info("using YAML store for daemon", "store_type", "yaml")
+		st, err = yamlstore.New(scopes, storeLogger)
+		if err != nil {
+			return fmt.Errorf("creating YAML store: %w", err)
+		}
 	}
 
 	ctrl, err := controller.New(conf,
-		controller.WithStore(ys),
+		controller.WithStore(st),
 		controller.WithLogger(logging.ForScope(conf, "controller")),
 		controller.WithSkipInitialSync(c.SkipIndexSync),
 		controller.WithMnemonicDir(c.GlobalDir),

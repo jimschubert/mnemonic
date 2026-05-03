@@ -16,7 +16,9 @@ import (
 	"github.com/jimschubert/mnemonic/internal/controller"
 	"github.com/jimschubert/mnemonic/internal/daemon"
 	"github.com/jimschubert/mnemonic/internal/lint"
+	"github.com/jimschubert/mnemonic/internal/logging"
 	"github.com/jimschubert/mnemonic/internal/store"
+	"github.com/jimschubert/mnemonic/internal/store/sqlitestore"
 	"github.com/jimschubert/mnemonic/internal/store/yamlstore"
 )
 
@@ -86,11 +88,13 @@ type LintCmd struct {
 	Threshold float64  `default:"0.90" help:"Similarity threshold for merge suggestions"`
 
 	Embedding embeddable `embed:"" prefix:"embedding-"`
+	Store     storeFlags `embed:"" prefix:"store-"`
 }
 
 //goland:noinspection GoUnhandledErrorResult
-func (c *LintCmd) Run(_ *slog.Logger, conf config.Config) error {
+func (c *LintCmd) Run(logger *slog.Logger, conf config.Config) error {
 	c.Embedding.applyConfig(&conf)
+	c.Store.applyConfig(&conf)
 
 	noopLog := slog.New(slog.NewTextHandler(io.Discard, nil))
 	if conf.Embeddings.Endpoint == "" || conf.Embeddings.Model == "" {
@@ -136,13 +140,27 @@ func (c *LintCmd) Run(_ *slog.Logger, conf config.Config) error {
 			return fmt.Errorf("building daemon-backed index: %w", err)
 		}
 	} else {
-		ys, err := yamlstore.New(scopes, noopLog, yamlstore.WithAutoHitCounting(false))
-		if err != nil {
-			return fmt.Errorf("creating YAML store: %w", err)
+		var st store.Store
+		var err error
+		switch conf.Store.Type {
+		case "sqlite":
+			sqlitePath := conf.SQLiteStorePath()
+			logger.Info("using SQLite store for linting", "store_type", "sqlite", "sqlite_path", sqlitePath)
+			st, err = sqlitestore.New(sqlitePath,
+				logging.ForScope(conf, "store"),
+				sqlitestore.WithConfiguredScopes(slices.Collect(maps.Keys(scopes))),
+				sqlitestore.WithAutoHitCounting(false),
+			)
+		default:
+			logger.Info("using YAML store for linting", "store_type", "yaml")
+			st, err = yamlstore.New(scopes, logging.ForScope(conf, "store"), yamlstore.WithAutoHitCounting(false))
 		}
 
+		if err != nil {
+			return err
+		}
 		ctrl, err = controller.New(conf,
-			controller.WithStore(ys),
+			controller.WithStore(st),
 			controller.WithLogger(noopLog),
 			controller.WithSkipInitialSync(false),
 			controller.WithMnemonicDir(c.GlobalDir),
