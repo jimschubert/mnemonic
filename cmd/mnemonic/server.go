@@ -21,9 +21,7 @@ import (
 
 // ServerCmd starts the MCP server as a stateless proxy to the background daemon.
 type ServerCmd struct {
-	GlobalDir             string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
-	LocalDir              string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
-	Team                  []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
+	scopeFlags
 	ServerAddr            string   `short:"a" default:"${server_addr}" help:"Address to listen on for MCP requests"  env:"MNEMONIC_SERVER_ADDR"`
 	Mandatory             []string `help:"Additional mandatory categories beyond the defaults (avoidance, security)" env:"MNEMONIC_MANDATORY" sep:","`
 	AuthToken             string   `help:"Bearer token required for all TCP HTTP requests (empty = no auth)" env:"MNEMONIC_AUTH_TOKEN"`

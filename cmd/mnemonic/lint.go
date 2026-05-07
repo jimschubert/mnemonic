@@ -82,10 +82,8 @@ var lintKeys = lintKeyMap{
 
 // LintCmd provides an interactive TUI to resolve memory health issues.
 type LintCmd struct {
-	GlobalDir string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
-	LocalDir  string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
-	Team      []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
-	Threshold float64  `default:"0.90" help:"Similarity threshold for merge suggestions"`
+	scopeFlags
+	Threshold float64 `default:"0.90" help:"Similarity threshold for merge suggestions"`
 
 	Embedding embeddable `embed:"" prefix:"embedding-"`
 	Store     storeFlags `embed:"" prefix:"store-"`
@@ -101,7 +99,7 @@ func (c *LintCmd) Run(logger *slog.Logger, conf config.Config) error {
 		return fmt.Errorf("embeddings not available: endpoint and model must be configured")
 	}
 
-	scopes := createScopes(c.GlobalDir, c.LocalDir, c.Team)
+	scopes := c.createScopes()
 	var (
 		ctrl    *controller.MemoryController
 		backend entryStoreBackend

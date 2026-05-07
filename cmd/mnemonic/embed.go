@@ -45,9 +45,7 @@ func (e *embeddable) applyConfig(conf *config.Config) {
 
 // EmbedCmd fetches embeddings and builds the selected index.
 type EmbedCmd struct {
-	GlobalDir string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
-	LocalDir  string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
-	Team      []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
+	scopeFlags
 
 	Force bool `help:"Overwrite existing index"`
 
@@ -59,7 +57,7 @@ func (e *EmbedCmd) Run(logger *slog.Logger, conf config.Config) error {
 	e.Embedding.applyConfig(&conf)
 	e.Store.applyConfig(&conf)
 
-	scopes := createScopes(e.GlobalDir, e.LocalDir, e.Team)
+	scopes := e.createScopes()
 	var st store.Store
 	var err error
 	switch conf.Store.Type {

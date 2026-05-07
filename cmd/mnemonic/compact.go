@@ -27,12 +27,10 @@ import (
 
 // CompactCmd allows for compacting a memory by querying an LLM to reduce overall token size of the memory without losing detail.
 type CompactCmd struct {
-	GlobalDir string   `short:"g" default:"~/.mnemonic" help:"Directory for global data" env:"MNEMONIC_GLOBAL_DIR"`
-	LocalDir  string   `short:"l" default:".mnemonic" help:"Directory for project data" env:"MNEMONIC_LOCAL_DIR"`
-	Team      []string `short:"t" help:"Team data directories (repeatable); scope will become team:<basename>" env:"MNEMONIC_TEAM_DIRS" sep:","`
-	BaseURL   string   `default:"http://localhost:1234/v1" help:"Base URL of OpenAI-compatible /chat/completions API" env:"OPENAI_BASE_URL"`
-	ApiKey    string   `default:"" help:"API key to access BaseURL" env:"OPENAI_API_KEY"`
-	Model     string   `required:"" help:"Model to use for compaction"`
+	scopeFlags
+	BaseURL string `default:"http://localhost:1234/v1" help:"Base URL of OpenAI-compatible /chat/completions API" env:"OPENAI_BASE_URL"`
+	ApiKey  string `default:"" help:"API key to access BaseURL" env:"OPENAI_API_KEY"`
+	Model   string `required:"" help:"Model to use for compaction"`
 
 	Caveman string `name:"caveman" default:"off" enum:"off,lite,full,ultra" help:"Caveman mode selection for more aggressive compaction (see https://juliusbrussee.github.io/caveman/)"`
 	Yes     bool   `help:"Skip the destructive caveman confirmation prompt"`
@@ -113,7 +111,7 @@ func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 		}
 	}
 
-	scopes := createScopes(c.GlobalDir, c.LocalDir, c.Team)
+	scopes := c.createScopes()
 	var (
 		backend         entryStoreBackend
 		ctrl            *controller.MemoryController
