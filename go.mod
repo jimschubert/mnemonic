@@ -11,7 +11,7 @@ require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/coder/hnsw v0.6.2-0.20260409155042-1e7c441a6bbf
-	github.com/modelcontextprotocol/go-sdk v1.5.0
+	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/muesli/reflow v0.3.0
 	github.com/ncruces/go-sqlite3 v0.20.3
 	github.com/sethvargo/go-envconfig v1.3.0
@@ -33,7 +33,7 @@ require (
 	github.com/chewxy/math32 v1.11.1 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/renameio v1.0.1 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
