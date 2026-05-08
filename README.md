@@ -513,6 +513,13 @@ assets — grab the one for your platform:
 The extension **must match** the vec1 revision which `mnemonic` is built against. As long as you download the extension 
 from the same release, the extension will load properly.
 
+> [!NOTE]
+> You may also need to run the following to allow loading unsigned extensions on macOS:
+>
+> ``sh
+> attr -r -d com.apple.quarantine /path/to/vec1-darwin-arm64.dylib
+> ``
+
 If you've built `mnemonic` from source instead of downloading a release, build the local extension to match:
 
 ```sh
