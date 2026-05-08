@@ -13,27 +13,54 @@
 # limitations under the License.
 
 # Build the vec1 SQLite extension for each supported platform and attach the
-# binaries to the GitHub release as standalone downloadable assets. Triggers
-# when GoReleaser publishes a release so the release already exists when we
-# upload. Users need the extension only to inspect a mnemonic vec1 index with
-# the standalone sqlite3 shell — normal operation doesn't require it.
+# binaries to the GitHub release as standalone downloadable assets. Triggered
+# manually so that it can run after GoReleaser has published a release (the
+# default GITHUB_TOKEN cannot trigger other workflows from release events).
+# Leave `version` blank to target the latest published release automatically.
+# Users need the extension only to inspect a mnemonic vec1 index with the
+# standalone sqlite3 shell — normal operation doesn't require it.
 
 name: Build vec1 extension
 
 on:
-  release:
-    types: [ published ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag to build for (leave empty to use the latest release)'
+        required: false
+        default: ''
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.version || github.run_id }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  resolve-tag:
+    name: resolve release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    permissions:
+      contents: read
+    steps:
+      - name: resolve release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.version }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')"
+          fi
+          if [ -z "$TAG" ]; then echo "::error::Could not resolve a release tag"; exit 1; fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: resolve-tag
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -73,6 +100,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve-tag.outputs.tag }}
 
       - uses: actions/setup-go@v6
         with:
@@ -123,7 +152,7 @@ jobs:
 
   upload:
     name: attach to release
-    needs: build
+    needs: [resolve-tag, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -137,6 +166,6 @@ jobs:
       - name: upload assets to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ needs.resolve-tag.outputs.tag }}
         run: gh release upload "$TAG" dist/vec1/* --clobber --repo "$GITHUB_REPOSITORY"
 
