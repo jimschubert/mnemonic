@@ -2,8 +2,6 @@ package index
 
 import (
 	"io"
-
-	_ "github.com/asg017/sqlite-vec-go-bindings/ncruces"
 )
 
 // Indexer defines an interface for managing and searching vector indices.

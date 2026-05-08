@@ -2,42 +2,47 @@ package sqlitevec
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"math"
 
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/ncruces"
-	_ "github.com/ncruces/go-sqlite3/driver"
+	"github.com/ncruces/go-sqlite3/driver"
+	"github.com/ncruces/go-sqlite3/ext/vec1"
 
 	"github.com/jimschubert/mnemonic/internal/index"
 )
 
 var _ index.Indexer = (*Index)(nil)
 
-// Index implements index.Indexer using SQLite and sqlite-vec.
+// Index implements index.Indexer using SQLite vec1 extension.
 type Index struct {
 	db         *sql.DB
 	dimensions int
 }
 
-// New creates or opens a SQLite database and initializes the vector table.
+// New creates or opens a SQLite database and initializes the vec1 tables.
 func New(dbPath string, dimensions int) (*Index, error) {
-	db, err := sql.Open("sqlite3", "file:"+dbPath+"?_pragma=journal_mode(wal)")
+	db, err := driver.Open("file:"+dbPath+"?_pragma=journal_mode(wal)", vec1.Register)
 	if err != nil {
 		return nil, fmt.Errorf("opening sqlite index database: %w", err)
 	}
 
-	schema := fmt.Sprintf(`
-		CREATE VIRTUAL TABLE IF NOT EXISTS vec_index USING vec0(
-			id TEXT PRIMARY KEY,
-			embedding float[%d]
+	// vec1 does not support TEXT primary keys directly; use a mapping table (vec_ids)
+	// that maps integer rowids to string IDs, and a separate virtual table for embeddings.
+	schema := `
+		CREATE TABLE IF NOT EXISTS vec_ids (
+			rowid INTEGER PRIMARY KEY,
+			id TEXT NOT NULL UNIQUE
 		);
-	`, dimensions)
+
+		CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec1(embedding);
+	`
 
 	if _, err := db.Exec(schema); err != nil {
 		if closeErr := db.Close(); closeErr != nil {
 			return nil, fmt.Errorf("closing sqlite index database after schema failure: %w", closeErr)
 		}
-		return nil, fmt.Errorf("creating vec_index table: %w", err)
+		return nil, fmt.Errorf("creating vec1 tables: %w", err)
 	}
 
 	return &Index{
@@ -55,34 +60,82 @@ func (idx *Index) InsertVector(id string, vector []float32) error {
 		return fmt.Errorf("vector dimension mismatch: expected %d, got %d", idx.dimensions, len(vector))
 	}
 
-	blob, err := sqlite_vec.SerializeFloat32(vector)
+	// vector -> JSON -> vec1_from_json on insert
+	jsonVector, err := json.Marshal(vector)
 	if err != nil {
-		return fmt.Errorf("serializing vector: %w", err)
+		return fmt.Errorf("marshaling vector: %w", err)
 	}
 
-	query := `INSERT OR REPLACE INTO vec_index(id, embedding) VALUES (?, ?)`
-	_, err = idx.db.Exec(query, id, blob)
+	tx, err := idx.db.Begin()
 	if err != nil {
-		return fmt.Errorf("inserting vector: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// ensure an id -> rowid mapping exists, then upsert the embedding for rowid
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO vec_ids(id) VALUES (?)`, id); err != nil {
+		return fmt.Errorf("inserting vec id mapping: %w", err)
+	}
+
+	var rowid int64
+	if err := tx.QueryRow(`SELECT rowid FROM vec_ids WHERE id = ?`, id).Scan(&rowid); err != nil {
+		return fmt.Errorf("selecting rowid for id %q: %w", id, err)
+	}
+
+	// vec1 can't upsert directly, so attempt an update and insert of zero rows were affected
+	result, err := tx.Exec(`UPDATE vec_embeddings SET embedding = vec1_from_json(?) WHERE rowid = ?`, string(jsonVector), rowid)
+	if err != nil {
+		return fmt.Errorf("updating embedding: %w", err)
+	}
+
+	// ncruces never errors here
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		if _, err := tx.Exec(`INSERT INTO vec_embeddings(rowid, embedding) VALUES (?, vec1_from_json(?))`, rowid, string(jsonVector)); err != nil {
+			return fmt.Errorf("inserting embedding: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit insert vector: %w", err)
+	}
+
 	return nil
 }
 
 func (idx *Index) DeleteVector(id string) error {
-	query := `DELETE FROM vec_index WHERE id = ?`
-	res, err := idx.db.Exec(query, id)
+	tx, err := idx.db.Begin()
 	if err != nil {
-		return fmt.Errorf("deleting vector: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
 	}
-	affected, _ := res.RowsAffected()
-	if affected == 0 {
-		return fmt.Errorf("node %q not found in index", id)
+	defer func() { _ = tx.Rollback() }()
+
+	// get id then cascade delete the embedding
+	var rowid int64
+	if err := tx.QueryRow(`SELECT rowid FROM vec_ids WHERE id = ?`, id).Scan(&rowid); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("node %q not found in index", id)
+		}
+		return fmt.Errorf("finding rowid for delete: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM vec_embeddings WHERE rowid = ?`, rowid); err != nil {
+		return fmt.Errorf("deleting embedding: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM vec_ids WHERE rowid = ?`, rowid); err != nil {
+		return fmt.Errorf("deleting id mapping: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete: %w", err)
 	}
 	return nil
 }
 
 func (idx *Index) ListIDs() (ids []string, err error) {
-	rows, err := idx.db.Query(`SELECT id FROM vec_index`)
+	rows, err := idx.db.Query(`SELECT id FROM vec_ids`)
 	if err != nil {
 		return nil, fmt.Errorf("listing vector ids: %w", err)
 	}
@@ -114,19 +167,23 @@ func (idx *Index) Search(target []float32, k int) (results []index.SearchResult,
 		return nil, fmt.Errorf("k must be greater than 0, got %d", k)
 	}
 
-	blob, err := sqlite_vec.SerializeFloat32(target)
+	jsonVector, err := json.Marshal(target)
 	if err != nil {
-		return nil, fmt.Errorf("serializing target vector: %w", err)
+		return nil, fmt.Errorf("marshaling target vector: %w", err)
 	}
 
+	// vec1 uses a table-valued query. first arg is target vector, second arg is options as a JSON object.
+	// k belongs in that options, not as a LIMIT on the query (vec1 optimizes the ANN query based on the opts).
+	// v.distance is metadata (don't return it), so we need vec1_cos_distance to get a user-facing distance value.
 	query := `
-		SELECT id, distance
-		FROM vec_index
-		WHERE embedding MATCH ?
-		  AND k = ?
+		SELECT
+			vi.id,
+			vec1_cos_distance(v.embedding, vec1_from_json(?)) AS distance
+		FROM vec_embeddings(vec1_from_json(?), json_object('k', ?)) AS v
+		JOIN vec_ids vi ON vi.rowid = v.rowid
 		ORDER BY distance
 	`
-	rows, err := idx.db.Query(query, blob, k)
+	rows, err := idx.db.Query(query, string(jsonVector), string(jsonVector), k)
 	if err != nil {
 		return nil, fmt.Errorf("searching index: %w", err)
 	}
@@ -139,9 +196,11 @@ func (idx *Index) Search(target []float32, k int) (results []index.SearchResult,
 
 	for rows.Next() {
 		var res index.SearchResult
-		if err := rows.Scan(&res.ID, &res.Distance); err != nil {
+		var distance float64
+		if err := rows.Scan(&res.ID, &distance); err != nil {
 			return nil, fmt.Errorf("scanning search result: %w", err)
 		}
+		res.Distance = float32(distance)
 		results = append(results, res)
 	}
 	if err := rows.Err(); err != nil {
@@ -152,21 +211,23 @@ func (idx *Index) Search(target []float32, k int) (results []index.SearchResult,
 }
 
 func (idx *Index) LookupVector(id string) ([]float32, bool) {
-	query := `SELECT embedding FROM vec_index WHERE id = ?`
+	query := `
+		SELECT vec1_to_json(v.embedding)
+		FROM vec_embeddings v
+		JOIN vec_ids vi ON vi.rowid = v.rowid
+		WHERE vi.id = ?
+	`
 
-	var blob []byte
-	err := idx.db.QueryRow(query, id).Scan(&blob)
-	if err != nil {
-		if err == sql.ErrNoRows {
+	var raw string
+	if err := idx.db.QueryRow(query, id).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, false
 		}
 		return nil, false
 	}
-
-	vec := make([]float32, len(blob)/4)
-	for i := range vec {
-		importBinary := uint32(blob[i*4]) | uint32(blob[i*4+1])<<8 | uint32(blob[i*4+2])<<16 | uint32(blob[i*4+3])<<24
-		vec[i] = math.Float32frombits(importBinary)
+	var vector []float32
+	if err := json.Unmarshal([]byte(raw), &vector); err != nil {
+		return nil, false
 	}
-	return vec, true
+	return vector, true
 }

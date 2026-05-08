@@ -1,0 +1,142 @@
+# Copyright 2026 Jim Schubert
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Build the vec1 SQLite extension for each supported platform and attach the
+# binaries to the GitHub release as standalone downloadable assets. Triggers
+# when GoReleaser publishes a release so the release already exists when we
+# upload. Users need the extension only to inspect a mnemonic vec1 index with
+# the standalone sqlite3 shell — normal operation doesn't require it.
+
+name: Build vec1 extension
+
+on:
+  release:
+    types: [ published ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            ext: so
+            cc: gcc
+            link_flags: -shared -fPIC
+            multi: true
+
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            ext: so
+            cc: gcc
+            link_flags: -shared -fPIC
+            multi: false
+
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            ext: dylib
+            cc: clang
+            link_flags: -dynamiclib -undefined dynamic_lookup
+            multi: false
+
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+            ext: dylib
+            cc: clang
+            link_flags: -dynamiclib -undefined dynamic_lookup
+            multi: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: find pinned vec1.c source URL
+        id: vec1-url
+        run: |
+          go mod download
+          # this logic should mirror script/build-vec1-dylib.sh from the repo root.
+          MOD_DIR="$(go list -m -f '{{.Dir}}' github.com/ncruces/go-sqlite3-wasm/v2)"
+          BUILD_SH="${MOD_DIR}/vec1/build/build.sh"
+          RAW_URL="$(grep 'sqlite.org/vec1/raw/' "$BUILD_SH" | sed -E 's/.*"(https:\/\/sqlite\.org\/vec1\/raw\/[^"]+)".*/\1/')"
+          if [ -z "$RAW_URL" ]; then echo "::error::Could not extract vec1.c URL from ${BUILD_SH}"; exit 1; fi
+          echo "url=${RAW_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: download vec1.c
+        run: curl -fsSL "${{ steps.vec1-url.outputs.url }}" -o vec1.c
+
+      # multi-arch (amd64 only), as described in https://sqlite.org/vec1/file?name=Makefile&ci=tip
+      - name: build (multi-arch x86_64)
+        if: ${{ matrix.multi }}
+        env:
+          CC: ${{ matrix.cc }}
+          LINK_FLAGS: ${{ matrix.link_flags }}
+          TARGET: vec1-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.ext }}
+        run: |
+          "$CC" -DVEC1SIMD=SCALAR -c -O3 -DNDEBUG -Wextra -fPIC vec1.c -o vec1scalar.o
+          "$CC" -DVEC1SIMD=AVX2   -c -O3 -DNDEBUG -Wextra -fPIC -mavx2 -mfma vec1.c -o vec1avx2.o
+          # shellcheck disable=SC2086
+          "$CC" vec1scalar.o vec1avx2.o $LINK_FLAGS -o "$TARGET"
+
+      - name: build (scalar only)
+        if: ${{ !matrix.multi }}
+        env:
+          CC: ${{ matrix.cc }}
+          LINK_FLAGS: ${{ matrix.link_flags }}
+          TARGET: vec1-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.ext }}
+        run: |
+          # shellcheck disable=SC2086
+          "$CC" -DVEC1SIMD=SCALAR -O3 -DNDEBUG -Wextra -fPIC $LINK_FLAGS vec1.c -o "$TARGET"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vec1-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: vec1-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.ext }}
+          if-no-files-found: error
+
+  upload:
+    name: attach to release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: vec1-*
+          merge-multiple: true
+          path: dist/vec1
+
+      - name: upload assets to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/vec1/* --clobber --repo "$GITHUB_REPOSITORY"
+

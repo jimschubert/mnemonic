@@ -459,8 +459,8 @@ compatible embeddings API should work if it returns vectors with the configured 
 ## Alternate Stores
 
 The initial design of `mnemonic` supports local YAML files which can be versioned controlled and edited directly.
-If you don't care about version control or manual file editing, you can opt-in to the SQLite store. This is a store
-which is managed by the `wasm` embedded SQLite with the sqlite-vec extension (see notes below regarding macOS).
+If you don't care about version control or manual file editing, you can opt-in to the SQLite store. This store uses
+`github.com/ncruces/go-sqlite3` and the `vec1` extension for the vector index.
 
 To configure, add the following to your config.yaml:
 
@@ -474,9 +474,9 @@ Command supporting the SQLite store also expose these as flags - run `--help` fo
 
 ## Notes
 
-### macOS: sqlite3 extension loading
+### macOS: inspecting the vec1 index with `sqlite3`
 
-The system-provided `sqlite3` on macOS may not be able to load extensions, and mnemonic's index requires [sqlite-vec](https://github.com/asg017/sqlite-vec).
+The system-provided `sqlite3` on macOS may not be able to load extensions, and mnemonic's index requires the [sqlite vec1](https://sqlite.org/vec1/doc/trunk/doc/vec1.md) extension.
 If you use semantic search with embeddings on macOS and you want to inspect or (not recommended) edit the index manually, you'll need to install `sqlite3` from Homebrew:
 
 ```sh
@@ -498,17 +498,36 @@ Then reload your shell and check the version:
 sqlite --version
 ```
 
-### macOS: vec0 extension
+### macOS: loading the `vec1` extension
 
-If you want to interact with the vector index using sqlite3, you'll need to download and extract the `vec0` extension 
-from the [sqlite-vec releases page](https://github.com/asg017/sqlite-vec/releases).
+Each [release](https://github.com/jimschubert/mnemonic/releases/latest) includes pre-built vec1 extensions as standalone
+assets — grab the one for your platform:
 
-Then, start sqlite3 (via the alias described above) and load the extension:
+| Asset                       | Platform            |
+|-----------------------------|---------------------|
+| `vec1-darwin-arm64.dylib`   | macOS Apple Silicon |
+| `vec1-darwin-amd64.dylib`   | macOS Intel         |
+| `vec1-linux-amd64.so`       | Linux x86_64        |
+| `vec1-linux-arm64.so`       | Linux arm64         |
+
+The extension **must match** the vec1 revision which `mnemonic` is built against. As long as you download the extension 
+from the same release, the extension will load properly.
+
+If you've built `mnemonic` from source instead of downloading a release, build the local extension to match:
+
+```sh
+./script/build-vec1-dylib.sh
+```
+
+The script finds the pinned source URL referenced by the local `github.com/ncruces/go-sqlite3`, downloads `vec1.c`, compiles it, and prints
+the `.load` path with instructions.
+
+Then open the database (via the alias above) and load the extension. For example: 
 
 ```text
 $ sqlite ~/.mnemonic/index.db
-sqlite> .load /path/to/vec0
-sqlite> select count(*) from vec_index;
+sqlite> .load /absolute/path/to/dist/vec1/vec1
+sqlite> select count(*) from vec_ids;
 ╭──────────╮
 │ count(*) │
 ╞══════════╡
