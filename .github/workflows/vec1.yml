@@ -56,6 +56,7 @@ jobs:
             TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')"
           fi
           if [ -z "$TAG" ]; then echo "::error::Could not resolve a release tag"; exit 1; fi
+          echo "Resolved release tag: ${TAG}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
   build:
@@ -80,6 +81,9 @@ jobs:
             ext: so
             cc: gcc
             link_flags: -shared -fPIC
+            # GCC on aarch64 is stricter than clang about signed/unsigned type
+            # conversions in NEON intrinsics within vec1.c.
+            extra_cflags: -flax-vector-conversions
             multi: false
 
           - os: macos-latest
@@ -88,9 +92,15 @@ jobs:
             ext: dylib
             cc: clang
             link_flags: -dynamiclib -undefined dynamic_lookup
+            # LLVM clang on the CI runner hard-errors on __builtin_cpu_init and
+            # __builtin_cpu_supports (x86-only GCC builtins used in vec1HasAvx2);
+            # Xcode clang silently stubs them, so this won't happen locally.
+            # Stub them out so they compile cleanly; the scalar path never calls
+            # vec1HasAvx2() at runtime anyway.
+            extra_cflags: "-D__builtin_cpu_init()= -D__builtin_cpu_supports(x)=0"
             multi: false
 
-          - os: macos-13
+          - os: macos-26-intel
             goos: darwin
             goarch: amd64
             ext: dylib
@@ -139,10 +149,11 @@ jobs:
         env:
           CC: ${{ matrix.cc }}
           LINK_FLAGS: ${{ matrix.link_flags }}
+          EXTRA_CFLAGS: ${{ matrix.extra_cflags }}
           TARGET: vec1-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.ext }}
         run: |
           # shellcheck disable=SC2086
-          "$CC" -DVEC1SIMD=SCALAR -O3 -DNDEBUG -Wextra -fPIC $LINK_FLAGS vec1.c -o "$TARGET"
+          "$CC" -DVEC1SIMD=SCALAR -O3 -DNDEBUG -Wextra -fPIC $EXTRA_CFLAGS $LINK_FLAGS vec1.c -o "$TARGET"
 
       - uses: actions/upload-artifact@v7
         with:
