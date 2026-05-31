@@ -37,6 +37,7 @@ type CompactCmd struct {
 
 	Embedding embeddable `embed:"" prefix:"embedding-"`
 	Store     storeFlags `embed:"" prefix:"store-"`
+	ID        []string   `help:"Only compact these IDs"`
 }
 
 var (
@@ -173,6 +174,10 @@ func (c *CompactCmd) Run(logger *slog.Logger, conf config.Config) error {
 	}
 
 	for i, entry := range entries {
+		if len(c.ID) > 0 && !slices.Contains(c.ID, entry.ID) {
+			logger.Debug("skipped: ID filter", "id", entry.ID)
+			continue
+		}
 		status := "running"
 		progress.write(i, false, status)
 
