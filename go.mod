@@ -14,7 +14,7 @@ require (
 	github.com/muesli/reflow v0.3.0
 	github.com/ncruces/go-sqlite3 v0.34.0
 	github.com/sethvargo/go-envconfig v1.3.0
-	go.yaml.in/yaml/v4 v4.0.0-rc.4
+	go.yaml.in/yaml/v4 v4.0.0-rc.5
 	golang.org/x/term v0.43.0
 )
 
