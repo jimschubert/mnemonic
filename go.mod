@@ -15,7 +15,7 @@ require (
 	github.com/ncruces/go-sqlite3 v0.35.3
 	github.com/sethvargo/go-envconfig v1.3.0
 	go.yaml.in/yaml/v4 v4.0.0-rc.6
-	golang.org/x/term v0.44.0
+	golang.org/x/term v0.45.0
 )
 
 require (
