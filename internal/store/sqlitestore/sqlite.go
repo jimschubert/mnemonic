@@ -546,6 +546,50 @@ func (s *SQLiteStore) markHits(entries []store.Entry) error {
 	return nil
 }
 
+// sanitizeTags fixes an issue where an Agent may store a single stringified JSON array or a CSV scalar.
+// This is similar logic as exists in YAML store.
+func sanitizeTags(tags []string) []string {
+	if len(tags) == 0 || len(tags) > 1 {
+		return tags
+	}
+	raw := strings.TrimSpace(tags[0])
+	if strings.HasPrefix(raw, "[") || strings.Contains(raw, ",") {
+		var j []string
+		if err := json.Unmarshal([]byte(raw), &j); err == nil && len(j) > 0 {
+			return normalizeTagValues(j)
+		}
+		parts := strings.Split(raw, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			p = strings.Trim(p, `"'`)
+			if p != "" {
+				out = append(out, p)
+			}
+		}
+		if len(out) > 0 {
+			return normalizeTagValues(out)
+		}
+	}
+	return tags
+}
+
+func normalizeTagValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, s := range values {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func tagsMatch(entryTags []string, required []string) bool {
 	if len(required) == 0 {
 		return true
@@ -618,8 +662,19 @@ func scanEntry(scanner rowScanner) (store.Entry, error) {
 		entry.Tags = []string{}
 	} else {
 		if err := json.Unmarshal([]byte(tagsJSON), &entry.Tags); err != nil {
-			return store.Entry{}, fmt.Errorf("decoding tags for entry %q: %w", entry.ID, err)
+			// it's not JSON, so try CSV next
+			parts := strings.Split(tagsJSON, ",")
+			entry.Tags = make([]string, 0, len(parts))
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				// if CSV holds JSON array-like stuff, just remove all of it
+				p = strings.Trim(p, `"'[]`)
+				if p != "" {
+					entry.Tags = append(entry.Tags, p)
+				}
+			}
 		}
+		entry.Tags = sanitizeTags(entry.Tags)
 	}
 
 	entry.LastHit = lastHit

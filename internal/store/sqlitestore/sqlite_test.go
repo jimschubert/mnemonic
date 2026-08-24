@@ -315,6 +315,72 @@ func TestWithConfiguredScopes_QueriesFilterToScope(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestSanitizeTags(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"nil", nil, nil},
+		{"empty", []string{}, []string{}},
+		{"already clean", []string{"go", "errors"}, []string{"go", "errors"}},
+		{"stringified JSON array", []string{`["go","errors"]`}, []string{"go", "errors"}},
+		{"CSV single element", []string{"go,errors,test"}, []string{"go", "errors", "test"}},
+		{"CSV with spaces", []string{"go, errors, test"}, []string{"go", "errors", "test"}},
+		{"deduplication", []string{`["go","go","errors"]`}, []string{"go", "errors"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeTags(tc.in)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestScanEntry_MalformedTags(t *testing.T) {
+	s := newTestStore(t, WithAutoHitCounting(false))
+
+	// need to insert, then manually set bad data since the malformed tags would be older data cleaned on import
+	assert.NoError(t, s.Upsert(&store.Entry{
+		ID:       "bad-tags",
+		Content:  "entry with mangled tags",
+		Tags:     []string{"placeholder"},
+		Category: "domain",
+		Scope:    store.ScopeGlobal.String(),
+		Score:    1.0,
+		Created:  time.Now().Add(-1 * time.Hour),
+		Source:   "test",
+	}))
+
+	tests := []struct {
+		name     string
+		rawTags  string
+		wantTags []string
+	}{
+		{
+			name:     "stringified JSON array",
+			rawTags:  `["[\"go\",\"errors\"]"]`,
+			wantTags: []string{"go", "errors"},
+		},
+		{
+			name:     "JSON array with CSV element",
+			rawTags:  `["go,errors,test"]`,
+			wantTags: []string{"go", "errors", "test"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := s.db.Exec(`UPDATE entries SET tags = ? WHERE id = ?`, tc.rawTags, "bad-tags")
+			assert.NoError(t, err)
+
+			got, err := s.Get("bad-tags")
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantTags, got.Tags)
+		})
+	}
+}
+
 func TestWithConfiguredScopes_ModifyWithAnyScope(t *testing.T) {
 	s := newTestStore(t, WithConfiguredScopes([]store.Scope{store.ScopeGlobal}))
 

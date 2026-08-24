@@ -2,6 +2,7 @@ package yamlstore
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -439,7 +440,59 @@ func readCategoryFile(path string) (*file, error) {
 	if err := yaml.Unmarshal(b, &f); err != nil {
 		return nil, err
 	}
+	sanitizeFileTags(&f)
 	return &f, nil
+}
+
+// sanitizeFileTags fixes an issue where an Agent may store a single stringified JSON array or a CSV scalar.
+func sanitizeFileTags(f *file) {
+	for ei := range f.Entries {
+		t := f.Entries[ei].Tags
+		if len(t) == 0 {
+			continue
+		}
+		if len(t) > 1 {
+			// assume it's not a mixture of formats
+			continue
+		}
+		raw := strings.TrimSpace(t[0])
+		if strings.HasPrefix(raw, "[") || strings.Contains(raw, ",") {
+			var j []string
+			if err := json.Unmarshal([]byte(raw), &j); err == nil && len(j) > 0 {
+				f.Entries[ei].Tags = normalizeTagValues(j)
+				continue
+			}
+
+			parts := strings.Split(raw, ",")
+			out := make([]string, 0, len(parts))
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				p = strings.Trim(p, `"'`)
+				if p != "" {
+					out = append(out, p)
+				}
+			}
+			if len(out) > 0 {
+				f.Entries[ei].Tags = normalizeTagValues(out)
+			}
+		}
+	}
+}
+
+func normalizeTagValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, s := range values {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (s *YAMLStore) persist(scope store.Scope, category string) error {
