@@ -3,7 +3,7 @@ module github.com/jimschubert/mnemonic
 go 1.26
 
 require (
-	charm.land/bubbles/v2 v2.1.1
+	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.9
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.16.1
@@ -19,7 +19,7 @@ require (
 )
 
 require (
-	charm.land/lipgloss/v2 v2.0.4 // indirect
+	charm.land/lipgloss/v2 v2.0.5 // indirect
 	github.com/alecthomas/repr v0.5.2 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
@@ -37,7 +37,7 @@ require (
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.21 // indirect
-	github.com/mattn/go-runewidth v0.0.24 // indirect
+	github.com/mattn/go-runewidth v0.0.27 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/ncruces/go-sqlite3-wasm/v3 v3.2.35304 // indirect
