@@ -1,6 +1,6 @@
 module github.com/jimschubert/mnemonic
 
-go 1.26
+go 1.26.0
 
 require (
 	charm.land/bubbles/v2 v2.1.1
@@ -12,7 +12,7 @@ require (
 	github.com/coder/hnsw v0.6.2-0.20260409155042-1e7c441a6bbf
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/muesli/reflow v0.3.0
-	github.com/ncruces/go-sqlite3 v0.35.3
+	github.com/ncruces/go-sqlite3 v0.35.5
 	github.com/sethvargo/go-envconfig v1.4.3
 	go.yaml.in/yaml/v4 v4.0.0-rc.6
 	golang.org/x/term v0.45.0
@@ -40,7 +40,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
-	github.com/ncruces/go-sqlite3-wasm/v3 v3.2.35304 // indirect
+	github.com/ncruces/go-sqlite3-wasm/v6 v6.2.35304 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
@@ -51,8 +51,8 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
