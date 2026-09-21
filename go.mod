@@ -10,7 +10,7 @@ require (
 	github.com/alecthomas/kong-yaml v0.2.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/coder/hnsw v0.6.2-0.20260409155042-1e7c441a6bbf
-	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/muesli/reflow v0.3.0
 	github.com/ncruces/go-sqlite3 v0.35.3
 	github.com/sethvargo/go-envconfig v1.4.3
